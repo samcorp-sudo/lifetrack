@@ -1,0 +1,54 @@
+name: lifetrack
+description: "LifeTrack — know where your time goes, where your money goes, and what to do next."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.6
+
+  # State management
+  provider: ^6.1.2
+
+  # Local database (V1: local storage)
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.5
+  timezone: ^0.11.1
+
+  # Dates / formatting (₱ currency, schedule times)
+  intl: ^0.19.0
+
+  # Screen typography and analytics charts
+  google_fonts: ^6.2.1
+  fl_chart: ^0.68.0
+
+  # Local secure storage (V1 privacy: PIN / prefs)
+  shared_preferences: ^2.2.3
+  flutter_local_notifications: ^22.3.0
+  local_auth: ^3.0.2
+  flutter_secure_storage: ^9.2.4
+  crypto: ^3.0.7
+  file_selector: ^1.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
+
+  # fonts:
+  #   - family: LifeTrackFont
+  #     fonts:
+  #       - asset: assets/fonts/YourFont-Regular.ttf
