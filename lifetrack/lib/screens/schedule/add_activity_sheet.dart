@@ -1,17 +1,24 @@
 // ============================================================================
 // Add Activity bottom sheet (plan Section 2)
 // ----------------------------------------------------------------------------
-// WIRING NOTES:
-// - This is a pure UI shell with local-only state: nothing is saved yet.
-// - Category / rriority / Repeat dropdowns use hard-coded option lists.
+// IMPROVEMENTS OVER PREVIOUS VERSION (layout only — validation, save logic,
+// and all field state are unchanged):
+// - Close button now uses the same tinted icon-chip style as the header
+//   icons on Settings/Money/Schedule, instead of a bare IconButton.
+// - Priority and Repeat are now a side-by-side row, mirroring the existing
+//   Start/End time row pattern already in this file — cuts the form's
+//   vertical length by one field-row and groups two short dropdowns the
+//   same way two short time pickers are already grouped.
+// - Dropdown field container gets a touch of vertical padding so its height
+//   reads closer to the adjacent LifeTrackInput fields.
+//
+// WIRING NOTES (unchanged from original):
+// - This is a pure UI shell with local-only state: nothing is saved yet
+//   beyond ScheduleService.addScheduleItem, which is already wired below.
+// - Category / Priority / Repeat dropdowns use hard-coded option lists.
 //   Category should eventually pull from a user-editable categories list
-//   (rhase 4/5); rriority maps to the `rriority` enum in mock_data.dart.
-// - "SAVE" currently just pops the sheet. Wire it to
-//   ScheduleRepository.addActivity(...) (rhase 5), then pop and refresh the
-//   Schedule screen's list (e.g. via a callback passed into `show`, or a
-//   state-management refresh if one is introduced).
-// - Start/End time fields are plain text inputs for now; replace with
-//   `showTimericker` for real time selection.
+//   (Phase 4/5); Priority maps to the `Priority` enum in mock_data.dart.
+// - Start/End time fields use showTimePicker for real time selection.
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -40,6 +47,9 @@ class AddActivitySheet extends StatefulWidget {
 }
 
 class _AddActivitySheetState extends State<AddActivitySheet> {
+  static const _fieldGap = 14.0;
+  static const _iconChipSize = 34.0;
+
   final _titleController = TextEditingController();
   final _scheduleService = ScheduleService();
   bool _isSaving = false;
@@ -79,16 +89,29 @@ class _AddActivitySheetState extends State<AddActivitySheet> {
               ),
             ),
             const SizedBox(height: 16),
-            Text('ADD ACTIVITY', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('ADD ACTIVITY',
+                      style: Theme.of(context).textTheme.titleLarge),
+                ),
+                _iconChip(
+                  context,
+                  icon: Icons.close_rounded,
+                  tooltip: 'Close',
+                  onTap: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             LifeTrackInput(
                 label: 'Title',
-                hint: 'e.g. Java rractice',
+                hint: 'e.g. Java Practice',
                 controller: _titleController),
-            const SizedBox(height: 14),
+            const SizedBox(height: _fieldGap),
             _dropdownField('Category', _category, _categories,
                 (v) => setState(() => _category = v!)),
-            const SizedBox(height: 14),
+            const SizedBox(height: _fieldGap),
             LifeTrackInput(
                 label: 'Date',
                 hint: DateFormatter.toDisplayDate(_selectedDate),
@@ -104,7 +127,7 @@ class _AddActivitySheetState extends State<AddActivitySheet> {
                     setState(() => _selectedDate = pickedDate);
                   }
                 }),
-            const SizedBox(height: 14),
+            const SizedBox(height: _fieldGap),
             Row(
               children: [
                 Expanded(
@@ -138,12 +161,21 @@ class _AddActivitySheetState extends State<AddActivitySheet> {
                         })),
               ],
             ),
-            const SizedBox(height: 14),
-            _dropdownField('Priority', _priority, _priorities,
-                (v) => setState(() => _priority = v!)),
-            const SizedBox(height: 14),
-            _dropdownField('Repeat', _repeat, _repeats,
-                (v) => setState(() => _repeat = v!)),
+            const SizedBox(height: _fieldGap),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _dropdownField('Priority', _priority, _priorities,
+                      (v) => setState(() => _priority = v!)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _dropdownField('Repeat', _repeat, _repeats,
+                      (v) => setState(() => _repeat = v!)),
+                ),
+              ],
+            ),
             const SizedBox(height: 20),
             Row(
               children: [
@@ -205,13 +237,42 @@ class _AddActivitySheetState extends State<AddActivitySheet> {
   }
 
   int _timeToMinutes(TimeOfDay time) => time.hour * 60 + time.minute;
-  String _formatDbTime(TimeOfDay time) => ':';
+
+  // Stores time in 24-hour "HH:mm" form for the database.
+  String _formatDbTime(TimeOfDay time) =>
+      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
   String _formatTime(TimeOfDay time) {
     final hour = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
     final minute = time.minute.toString().padLeft(2, '0');
     final period = time.period == DayPeriod.am ? 'AM' : 'PM';
     return '$hour:$minute $period';
+  }
+
+  // Shared tinted-chip look for icon buttons, matching the header icons on
+  // Settings/Money/Schedule.
+  Widget _iconChip(
+    BuildContext context, {
+    required IconData icon,
+    required VoidCallback onTap,
+    String? tooltip,
+  }) {
+    final color = Theme.of(context).colorScheme.primary;
+    final chip = GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: _iconChipSize,
+        height: _iconChipSize,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, size: 18, color: color),
+      ),
+    );
+    return tooltip == null ? chip : Tooltip(message: tooltip, child: chip);
   }
 
   Widget _dropdownField(String label, String value, List<String> options,
@@ -222,7 +283,7 @@ class _AddActivitySheetState extends State<AddActivitySheet> {
         Text(label, style: Theme.of(context).textTheme.labelSmall),
         const SizedBox(height: 6),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(LifeTrackMetrics.chipRadius),
             border: Border.all(color: LifeTrackColors.strokeDark),

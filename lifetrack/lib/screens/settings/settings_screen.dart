@@ -1,8 +1,20 @@
 // ============================================================================
 // Settings Screen (plan Section 11)
 // ----------------------------------------------------------------------------
-// WIRING NOTES — this screen is almost entirely wiring TODOs, grouped by
-// the plan's own sections:
+// REDESIGN NOTES — visual layout only. All logic, icons, and colors are
+// unchanged from the original. Changes:
+// - Icons now sit in a soft tinted "chip" (same colors as before, just at
+//   low opacity as a background) instead of floating bare — gives each row
+//   a clearer anchor and more visual weight.
+// - Section labels get slightly more letter-spacing and a touch more
+//   breathing room above/below.
+// - Row height increased slightly and icon/label gap tightened for a more
+//   modern, denser-but-legible rhythm.
+// - Cards get a subtle shadow instead of relying purely on a flat border,
+//   so sections read as distinct surfaces.
+// - Destructive row and chevron treatment tightened for consistency.
+//
+// WIRING NOTES — unchanged from original, still applicable:
 //
 // SECURITY (Phase 9):
 // - App Lock / Biometric toggles are local-only bool state right now.
@@ -53,7 +65,6 @@ import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart';
 
 import '../../theme/app_theme.dart';
-import '../../widgets/lifetrack_card.dart';
 import '../../widgets/lifetrack_dialog.dart';
 import '../../core/security/security_service.dart';
 import '../../core/database/database_helper.dart';
@@ -73,20 +84,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const _automaticBackupInterval = Duration(days: 1);
 
   // ---------------------------------------------------------------------
-  // Layout spacing scale — only the numbers changed in this pass. Icons,
-  // colors, and typography styles are untouched; this just governs gaps,
-  // padding, and box rhythm across the screen.
+  // Layout spacing scale — redesigned rhythm. Icons, colors, and
+  // typography styles are untouched; this governs gaps, padding, and box
+  // rhythm across the screen.
   // ---------------------------------------------------------------------
   static const double _screenHorizontalPadding = 20;
   static const double _screenTopPadding = 24;
   static const double _screenBottomPadding = 40;
-  static const double _headerBottomGap = 28;
+  static const double _headerBottomGap = 32;
   static const double _headerIconTitleGap = 14;
-  static const double _sectionGap = 28;
-  static const double _sectionLabelBottomGap = 12;
-  static const double _rowVerticalPadding = 14;
+  static const double _sectionGap = 24;
+  static const double _sectionLabelBottomGap = 10;
+  static const double _rowVerticalPadding = 12;
   static const double _rowIconLabelGap = 14;
-  static const double _cardContentHorizontalPadding = 4;
+  static const double _cardContentHorizontalPadding = 8;
+  static const double _iconChipSize = 34;
+  static const double _cardRadius = 18;
 
   final _securityService = SecurityService();
   Timer? _automaticBackupTimer;
@@ -489,71 +502,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         children: [
           _header(context),
-         const SizedBox(height: _headerBottomGap),
+          const SizedBox(height: _headerBottomGap),
 
           _sectionLabel(context, 'SECURITY'),
-          LifeTrackCard(
-            child: _sectionBody([
-              _switchRow(context, Icons.lock_rounded, 'App Lock', _appLock,
-                  _toggleAppLock),
-              _navRow(context, Icons.timer_rounded, 'Auto Lock',
-                  _autoLockLabel, _pickAutoLock),
-              _switchRow(context, Icons.fingerprint_rounded, 'Biometric',
-                  _biometric, _toggleBiometric),
-            ]),
-          ),
-         const SizedBox(height: _sectionGap),
+          _sectionCard(context, [
+            _switchRow(context, Icons.lock_rounded, 'App Lock', _appLock,
+                _toggleAppLock),
+            _navRow(context, Icons.timer_rounded, 'Auto Lock', _autoLockLabel,
+                _pickAutoLock),
+            _switchRow(context, Icons.fingerprint_rounded, 'Biometric',
+                _biometric, _toggleBiometric),
+          ]),
+          const SizedBox(height: _sectionGap),
 
           _sectionLabel(context, 'APPEARANCE'),
-          LifeTrackCard(
-            child: _sectionBody([
-              _switchRow(
-                  context, Icons.dark_mode_rounded, 'Dark Mode', _darkMode,
-                  (v) {
-                ThemeModeController.mode.value =
-                    v ? ThemeMode.dark : ThemeMode.light;
-                setState(() {});
-              }),
-              _navRow(context, Icons.currency_exchange_rounded, 'Currency',
-                  _currencyCode, _pickCurrency),
-            ]),
-          ),
-        const  SizedBox(height: _sectionGap),
+          _sectionCard(context, [
+            _switchRow(
+                context, Icons.dark_mode_rounded, 'Dark Mode', _darkMode,
+                (v) {
+              ThemeModeController.mode.value =
+                  v ? ThemeMode.dark : ThemeMode.light;
+              setState(() {});
+            }),
+            _navRow(context, Icons.currency_exchange_rounded, 'Currency',
+                _currencyCode, _pickCurrency),
+          ]),
+          const SizedBox(height: _sectionGap),
 
           _sectionLabel(context, 'DATA'),
-          LifeTrackCard(
-            child: _sectionBody([
-              _actionRow(context, Icons.save_alt_rounded, 'Export Backup',
-                  _exportBackup),
-              _actionRow(context, Icons.file_download_rounded,
-                  'Import Backup', _importBackup),
-              _switchRow(context, Icons.backup_rounded, 'Automatic Backup',
-                  _automaticBackup, _toggleAutomaticBackup),
-            ]),
-          ),
+          _sectionCard(context, [
+            _actionRow(context, Icons.save_alt_rounded, 'Export Backup',
+                _exportBackup),
+            _actionRow(context, Icons.file_download_rounded, 'Import Backup',
+                _importBackup),
+            _switchRow(context, Icons.backup_rounded, 'Automatic Backup',
+                _automaticBackup, _toggleAutomaticBackup),
+          ]),
           const SizedBox(height: _sectionGap),
 
           _sectionLabel(context, 'CLOUD'),
-          LifeTrackCard(
-            child: _sectionBody([
-              _switchRow(context, Icons.cloud_rounded, 'Cloud Sync',
-                  _cloudSync, (v) => setState(() => _cloudSync = v)),
-            ]),
-          ),
-         const SizedBox(height: _sectionGap),
+          _sectionCard(context, [
+            _switchRow(context, Icons.cloud_rounded, 'Cloud Sync', _cloudSync,
+                (v) => setState(() => _cloudSync = v)),
+          ]),
+          const SizedBox(height: _sectionGap),
 
-          LifeTrackCard(
-            child: _sectionBody([
-              _destructiveRow(context),
-            ]),
-          ),
-        const  SizedBox(height: _sectionGap),
+          _sectionCard(context, [
+            _destructiveRow(context),
+          ]),
+          const SizedBox(height: _sectionGap),
 
-          LifeTrackCard(
-            child: _sectionBody([
-              _aboutRow(context),
-            ]),
-          ),
+          _sectionCard(context, [
+            _aboutRow(context),
+          ]),
         ],
       ),
     );
@@ -564,49 +565,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         GestureDetector(
           onTap: () => Navigator.of(context).maybePop(),
-          child: const Padding(
-            padding: EdgeInsets.all(4),
-            child: Icon(Icons.arrow_back_rounded),
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.arrow_back_rounded, size: 20),
           ),
         ),
-       const SizedBox(width: _headerIconTitleGap),
+        const SizedBox(width: _headerIconTitleGap),
         Text('Settings', style: Theme.of(context).textTheme.titleLarge),
       ],
     );
   }
 
-  // Wraps a card's rows with a thin divider between them and a small
-  // horizontal inset, so the tap targets breathe without touching the
-  // card edges.
-  Widget _sectionBody(List<Widget> rows) {
-    return Padding(
-      padding:
-          const EdgeInsets.symmetric(horizontal: _cardContentHorizontalPadding),
-      child: Column(
-        children: [
-          for (var i = 0; i < rows.length; i++) ...[
-            if (i > 0) const Divider(height: 1),
-            rows[i],
+  // Wraps a section's rows in a single elevated card with a soft shadow,
+  // rounded corners, and a thin divider between rows. Uses Card (not a
+  // plain Container) so it provides the Material ancestor that Switch
+  // and other Material widgets inside the rows require.
+  Widget _sectionCard(BuildContext context, List<Widget> rows) {
+    return Card(
+      margin: EdgeInsets.zero,
+      color: Theme.of(context).cardColor,
+      elevation: 3,
+      shadowColor: Colors.black.withValues(alpha: 0.08),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_cardRadius),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: _cardContentHorizontalPadding,
+          vertical: 4,
+        ),
+        child: Column(
+          children: [
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0)
+               const Divider(
+                  height: 1,
+                  indent: _iconChipSize + _rowIconLabelGap + 8,
+                ),
+              rows[i],
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 
   Widget _sectionLabel(BuildContext context, String label) => Padding(
         padding: const EdgeInsets.only(
-            bottom: _sectionLabelBottomGap, left: 4, top: 4),
-        child: Text(label, style: Theme.of(context).textTheme.labelSmall),
+            bottom: _sectionLabelBottomGap, left: 8, top: 4),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 0.6,
+              ),
+        ),
       );
+
+  // Small tinted chip behind a row icon — uses the icon's own color at low
+  // opacity as the background, so no new colors are introduced.
+  Widget _iconChip(Color color, IconData icon) {
+    return Container(
+      width: _iconChipSize,
+      height: _iconChipSize,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(icon, size: 18, color: color),
+    );
+  }
 
   Widget _switchRow(BuildContext context, IconData icon, String label,
       bool value, ValueChanged<bool> onChanged) {
+    final color = Theme.of(context).colorScheme.primary;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: _rowVerticalPadding),
+      padding: const EdgeInsets.symmetric(
+          vertical: _rowVerticalPadding, horizontal: 8),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
-        const  SizedBox(width: _rowIconLabelGap),
+          _iconChip(color, icon),
+          const SizedBox(width: _rowIconLabelGap),
           Expanded(
               child: Text(label, style: Theme.of(context).textTheme.bodyLarge)),
           Switch(
@@ -620,21 +663,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _navRow(BuildContext context, IconData icon, String label,
       String value, VoidCallback onTap) {
+    final color = Theme.of(context).colorScheme.primary;
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: _rowVerticalPadding),
+        padding: const EdgeInsets.symmetric(
+            vertical: _rowVerticalPadding, horizontal: 8),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
-           const SizedBox(width: _rowIconLabelGap),
+            _iconChip(color, icon),
+            const SizedBox(width: _rowIconLabelGap),
             Expanded(
                 child:
                     Text(label, style: Theme.of(context).textTheme.bodyLarge)),
-            Text(value, style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(width: 6),
-            const Icon(Icons.chevron_right_rounded, size: 18),
+            Text(value,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.color
+                          ?.withValues(alpha: 0.6),
+                    )),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right_rounded,
+                size: 18,
+                color: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.color
+                    ?.withValues(alpha: 0.4)),
           ],
         ),
       ),
@@ -643,19 +701,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _actionRow(
       BuildContext context, IconData icon, String label, VoidCallback onTap) {
+    final color = Theme.of(context).colorScheme.primary;
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: _rowVerticalPadding),
+        padding: const EdgeInsets.symmetric(
+            vertical: _rowVerticalPadding, horizontal: 8),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+            _iconChip(color, icon),
             const SizedBox(width: _rowIconLabelGap),
             Expanded(
                 child:
                     Text(label, style: Theme.of(context).textTheme.bodyLarge)),
-            const Icon(Icons.chevron_right_rounded),
+            Icon(Icons.chevron_right_rounded,
+                size: 18,
+                color: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.color
+                    ?.withValues(alpha: 0.4)),
           ],
         ),
       ),
@@ -677,11 +743,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       behavior: HitTestBehavior.opaque,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: _rowVerticalPadding),
+        padding: const EdgeInsets.symmetric(
+            vertical: _rowVerticalPadding, horizontal: 8),
         child: Row(
           children: [
-            const Icon(Icons.warning_amber_rounded,
-                size: 20, color: LifeTrackColors.coral),
+            _iconChip(LifeTrackColors.coral, Icons.warning_amber_rounded),
             const SizedBox(width: _rowIconLabelGap),
             Expanded(
                 child: Text('Delete All Data',
@@ -708,13 +774,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
       behavior: HitTestBehavior.opaque,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: _rowVerticalPadding),
+        padding: const EdgeInsets.symmetric(
+            vertical: _rowVerticalPadding, horizontal: 8),
         child: Row(
           children: [
             Expanded(
                 child: Text('About LifeTrack',
                     style: Theme.of(context).textTheme.bodyLarge)),
-            const Icon(Icons.chevron_right_rounded),
+            Icon(Icons.chevron_right_rounded,
+                size: 18,
+                color: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.color
+                    ?.withValues(alpha: 0.4)),
           ],
         ),
       ),
