@@ -13,12 +13,6 @@ Future<void> main() async {
   runApp(const LifeTrackApp());
 }
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const LifeTrackApp());
-}
-
 class LifeTrackApp extends StatelessWidget {
   const LifeTrackApp({super.key});
 

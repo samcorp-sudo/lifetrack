@@ -46,13 +46,19 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
     if (key.contains('credit') || key.contains('card')) {
       return Icons.credit_card_rounded;
     }
-    if (key.contains('mortgage') || key.contains('house') || key.contains('home')) {
+    if (key.contains('mortgage') ||
+        key.contains('house') ||
+        key.contains('home')) {
       return Icons.home_rounded;
     }
-    if (key.contains('car') || key.contains('auto') || key.contains('vehicle')) {
+    if (key.contains('car') ||
+        key.contains('auto') ||
+        key.contains('vehicle')) {
       return Icons.directions_car_rounded;
     }
-    if (key.contains('student') || key.contains('tuition') || key.contains('school')) {
+    if (key.contains('student') ||
+        key.contains('tuition') ||
+        key.contains('school')) {
       return Icons.school_rounded;
     }
     if (key.contains('personal') || key.contains('loan')) {
@@ -214,7 +220,11 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
     }
 
     Navigator.of(sheetContext).pop();
-    await _service.createLiability(name as Liability, amount!);
+    await _service.createLiability(Liability(
+      name: name,
+      type: 'Other',
+      amount: amount!,
+    ));
     _reload();
   }
 
@@ -256,8 +266,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
           }
 
           final liabilities = snapshot.data ?? const <Liability>[];
-          final total =
-              liabilities.fold<double>(0, (sum, l) => sum + l.amount);
+          final total = liabilities.fold<double>(0, (sum, l) => sum + l.amount);
           final sortedLiabilities = [...liabilities]
             ..sort((a, b) => b.amount.compareTo(a.amount));
 
@@ -456,8 +465,7 @@ class _LiabilityCard extends StatelessWidget {
                 value: share,
                 minHeight: 5,
                 backgroundColor: Colors.grey.withValues(alpha: 0.1),
-                valueColor:
-                    const AlwaysStoppedAnimation(LifeTrackColors.coral),
+                valueColor: const AlwaysStoppedAnimation(LifeTrackColors.coral),
               ),
             ),
           ],

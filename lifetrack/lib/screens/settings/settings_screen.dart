@@ -148,18 +148,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _toggleBiometric(bool enabled) async {
-    if (enabled && !await _securityService.isBiometricAvailable()) {
+    if (!enabled) {
+      await _securityService.setBiometricEnabled(false);
+      if (mounted) setState(() => _biometric = false);
+      return;
+    }
+
+    if (!await _securityService.isBiometricAvailable()) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text(
-                  'No biometric authentication is available on this device.')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Register a fingerprint or face unlock in your phone settings first.')));
       }
       return;
     }
-    await _securityService.setBiometricEnabled(enabled);
-    if (mounted) setState(() => _biometric = enabled);
+
+    if (!await _securityService.hasPin()) {
+      final pin = await _requestPin();
+      if (pin == null) return;
+      await _securityService.setPin(pin);
+    }
+
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Enable biometric unlock?'),
+        content: const Text(
+            'LifeTrack uses the biometric registered on this phone. Your biometric data is never stored by LifeTrack.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Continue')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final authenticated = await _securityService.authenticateBiometric();
+    if (!mounted) return;
+    if (!authenticated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Biometric setup was not completed.')));
+      return;
+    }
+    await _securityService.setAppLockEnabled(true);
+    await _securityService.setBiometricEnabled(true);
+    if (mounted) {
+      setState(() {
+        _appLock = true;
+        _biometric = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Biometric unlock is enabled.')));
+    }
   }
 
   Future<String?> _requestPin() async {
@@ -503,7 +548,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _header(context),
           const SizedBox(height: _headerBottomGap),
-
           _sectionLabel(context, 'SECURITY'),
           _sectionCard(context, [
             _switchRow(context, Icons.lock_rounded, 'App Lock', _appLock,
@@ -514,11 +558,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _biometric, _toggleBiometric),
           ]),
           const SizedBox(height: _sectionGap),
-
           _sectionLabel(context, 'APPEARANCE'),
           _sectionCard(context, [
-            _switchRow(
-                context, Icons.dark_mode_rounded, 'Dark Mode', _darkMode,
+            _switchRow(context, Icons.dark_mode_rounded, 'Dark Mode', _darkMode,
                 (v) {
               ThemeModeController.mode.value =
                   v ? ThemeMode.dark : ThemeMode.light;
@@ -528,7 +570,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _currencyCode, _pickCurrency),
           ]),
           const SizedBox(height: _sectionGap),
-
           _sectionLabel(context, 'DATA'),
           _sectionCard(context, [
             _actionRow(context, Icons.save_alt_rounded, 'Export Backup',
@@ -539,19 +580,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _automaticBackup, _toggleAutomaticBackup),
           ]),
           const SizedBox(height: _sectionGap),
-
           _sectionLabel(context, 'CLOUD'),
           _sectionCard(context, [
             _switchRow(context, Icons.cloud_rounded, 'Cloud Sync', _cloudSync,
                 (v) => setState(() => _cloudSync = v)),
           ]),
           const SizedBox(height: _sectionGap),
-
           _sectionCard(context, [
             _destructiveRow(context),
           ]),
           const SizedBox(height: _sectionGap),
-
           _sectionCard(context, [
             _aboutRow(context),
           ]),
@@ -568,7 +606,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+              color:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Icon(Icons.arrow_back_rounded, size: 20),
@@ -602,7 +641,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             for (var i = 0; i < rows.length; i++) ...[
               if (i > 0)
-               const Divider(
+                const Divider(
                   height: 1,
                   indent: _iconChipSize + _rowIconLabelGap + 8,
                 ),

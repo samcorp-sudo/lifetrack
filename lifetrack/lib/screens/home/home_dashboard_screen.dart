@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/dashboard_service.dart';
@@ -85,6 +87,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen>
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
+            developer.log(
+              'Dashboard load failed',
+              name: 'LifeTrack.dashboard',
+              error: snapshot.error,
+              stackTrace: snapshot.stackTrace,
+            );
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(LifeTrackMetrics.screenPadding),
@@ -315,7 +323,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen>
             ),
             child: Icon(Icons.bolt_rounded, size: 20, color: primary),
           ),
-         const SizedBox(width: _quickActionIconGap),
+          const SizedBox(width: _quickActionIconGap),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

@@ -41,6 +41,42 @@ class _TasksScreenState extends State<TasksScreen> {
     if (mounted) setState(() => _future = _service.getAllTasks());
   }
 
+  Future<void> _openAddTaskDialog() async {
+    final controller = TextEditingController();
+    final task = await showDialog<Task>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add task'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Task title'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final title = controller.text.trim();
+              if (title.isNotEmpty) {
+                Navigator.pop(dialogContext, Task(title: title));
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (task != null) {
+      await _service.addTask(task);
+      if (mounted) _reload();
+    }
+  }
+
   void _reload() {
     setState(() => _future = _service.getAllTasks());
   }
@@ -93,7 +129,7 @@ class _TasksScreenState extends State<TasksScreen> {
                     ),
                     IconButton(
                       tooltip: 'Add task',
-                      onPressed: () {},
+                      onPressed: _openAddTaskDialog,
                       icon: const Icon(Icons.add_rounded),
                     ),
                   ],

@@ -105,11 +105,63 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
+  Future<void> _openAddGoalDialog() async {
+    final nameController = TextEditingController();
+    final targetController = TextEditingController();
+    final goal = await showDialog<Goal>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add goal'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Goal name'),
+            ),
+            TextField(
+              controller: targetController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Target amount'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              final target = double.tryParse(targetController.text.trim());
+              if (name.isNotEmpty && target != null && target > 0) {
+                Navigator.pop(
+                  dialogContext,
+                  Goal(name: name, targetAmount: target),
+                );
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    nameController.dispose();
+    targetController.dispose();
+    if (goal != null) {
+      await _goalService.createGoal(goal);
+      if (mounted) _reload();
+    }
+  }
+
   Widget _header(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     return Row(
       children: [
-       
         Expanded(
           child: Text('Goals', style: Theme.of(context).textTheme.titleLarge),
         ),
@@ -117,10 +169,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
           color: primary,
           icon: Icons.add_rounded,
           tooltip: 'Add goal',
-          onTap: () {
-            // TODO: wire to a goal-creation flow once one exists, the same
-            // way AddActivitySheet.show() is wired from the Schedule screen.
-          },
+          onTap: _openAddGoalDialog,
         ),
       ],
     );

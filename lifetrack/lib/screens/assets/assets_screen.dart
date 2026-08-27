@@ -57,16 +57,22 @@ class _AssetsScreenState extends State<AssetsScreen> {
     if (key.contains('bank') || key.contains('savings')) {
       return Icons.account_balance_rounded;
     }
-    if (key.contains('stock') || key.contains('invest') || key.contains('fund')) {
+    if (key.contains('stock') ||
+        key.contains('invest') ||
+        key.contains('fund')) {
       return Icons.trending_up_rounded;
     }
     if (key.contains('crypto') || key.contains('bitcoin')) {
       return Icons.currency_bitcoin_rounded;
     }
-    if (key.contains('car') || key.contains('vehicle') || key.contains('motor')) {
+    if (key.contains('car') ||
+        key.contains('vehicle') ||
+        key.contains('motor')) {
       return Icons.directions_car_rounded;
     }
-    if (key.contains('house') || key.contains('property') || key.contains('condo')) {
+    if (key.contains('house') ||
+        key.contains('property') ||
+        key.contains('condo')) {
       return Icons.home_rounded;
     }
     if (key.contains('gold') || key.contains('jewel')) {
@@ -118,8 +124,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: LifeTrackColors.highlight
-                            .withValues(alpha: 0.12),
+                        color:
+                            LifeTrackColors.highlight.withValues(alpha: 0.12),
                       ),
                       child: const Icon(Icons.savings_rounded,
                           color: LifeTrackColors.highlight, size: 22),
@@ -226,7 +232,12 @@ class _AssetsScreenState extends State<AssetsScreen> {
     }
 
     Navigator.of(sheetContext).pop();
-    await _service.createAsset(name as Asset, value!);
+    await _service.createAsset(Asset(
+      name: name,
+      type: 'Other',
+      value: value!,
+      updatedAt: DateTime.now().toIso8601String(),
+    ));
     _reload();
   }
 
@@ -267,8 +278,7 @@ class _AssetsScreenState extends State<AssetsScreen> {
             }
 
             final assets = snapshot.data ?? const <Asset>[];
-            final total =
-                assets.fold<double>(0, (sum, a) => sum + a.value);
+            final total = assets.fold<double>(0, (sum, a) => sum + a.value);
             final sortedAssets = [...assets]
               ..sort((a, b) => b.value.compareTo(a.value));
 
@@ -287,8 +297,7 @@ class _AssetsScreenState extends State<AssetsScreen> {
                           shape: BoxShape.circle,
                           color: Colors.grey.withValues(alpha: 0.08),
                         ),
-                        child:
-                            const Icon(Icons.arrow_back_rounded, size: 20),
+                        child: const Icon(Icons.arrow_back_rounded, size: 20),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -302,8 +311,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: LifeTrackColors.highlight
-                              .withValues(alpha: 0.12),
+                          color:
+                              LifeTrackColors.highlight.withValues(alpha: 0.12),
                         ),
                         child: const Icon(Icons.add_rounded,
                             size: 20, color: LifeTrackColors.highlight),
@@ -397,9 +406,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
                             asset: sortedAssets[i],
                             color: _palette[i % _palette.length],
                             icon: _iconForAsset(sortedAssets[i].name),
-                            share: total == 0
-                                ? 0
-                                : sortedAssets[i].value / total,
+                            share:
+                                total == 0 ? 0 : sortedAssets[i].value / total,
                             peso: _peso,
                           ),
                         ),

@@ -73,22 +73,26 @@ class MoneyService {
     if (oldTransaction.accountId == newTransaction.accountId) {
       final account = await _accountRepo.getById(newTransaction.accountId);
       if (account != null) {
-        final balanceWithoutOld = account.balance - _signedAmount(oldTransaction);
-        final balanceWithNew = balanceWithoutOld + _signedAmount(newTransaction);
+        final balanceWithoutOld =
+            account.balance - _signedAmount(oldTransaction);
+        final balanceWithNew =
+            balanceWithoutOld + _signedAmount(newTransaction);
         await _accountRepo.update(account.copyWith(balance: balanceWithNew));
       }
     } else {
       final oldAccount = await _accountRepo.getById(oldTransaction.accountId);
       if (oldAccount != null) {
         await _accountRepo.update(
-          oldAccount.copyWith(balance: oldAccount.balance - _signedAmount(oldTransaction)),
+          oldAccount.copyWith(
+              balance: oldAccount.balance - _signedAmount(oldTransaction)),
         );
       }
 
       final newAccount = await _accountRepo.getById(newTransaction.accountId);
       if (newAccount != null) {
         await _accountRepo.update(
-          newAccount.copyWith(balance: newAccount.balance + _signedAmount(newTransaction)),
+          newAccount.copyWith(
+              balance: newAccount.balance + _signedAmount(newTransaction)),
         );
       }
     }
@@ -152,7 +156,7 @@ class MoneyService {
 
   Future<List<Asset>> getAssets() => _assetRepo.getAll();
 
-  Future<int> createAsset(Asset asset, double d) => _assetRepo.create(asset);
+  Future<int> createAsset(Asset asset) => _assetRepo.create(asset);
 
   Future<void> updateAsset(Asset asset) => _assetRepo.update(asset);
 
@@ -167,9 +171,11 @@ class MoneyService {
 
   Future<List<Liability>> getLiabilities() => _liabilityRepo.getAll();
 
-  Future<int> createLiability(Liability liability, double d) => _liabilityRepo.create(liability);
+  Future<int> createLiability(Liability liability) =>
+      _liabilityRepo.create(liability);
 
-  Future<void> updateLiability(Liability liability) => _liabilityRepo.update(liability);
+  Future<void> updateLiability(Liability liability) =>
+      _liabilityRepo.update(liability);
 
   Future<void> deleteLiability(int id) => _liabilityRepo.delete(id);
 
