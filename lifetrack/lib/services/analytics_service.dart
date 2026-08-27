@@ -100,6 +100,75 @@ class AnalyticsService {
     return points;
   }
 
+  /// Daily income/expense totals for the last [daysBack] days, oldest
+  /// first, today included. Powers the Analytics screen's weekly trend
+  /// card — shape matches what `AnalyticsScreen._load()` expects:
+  /// `{ 'date': DateTime, 'income': double, 'expenses': double }`.
+  Future<List<Map<String, dynamic>>> getDailyTotals(int daysBack) async {
+    final today = DateTime.now();
+    final startOfToday = DateTime(today.year, today.month, today.day);
+    final start = startOfToday.subtract(Duration(days: daysBack - 1));
+    return getDailyTotalsForRange(start, startOfToday);
+  }
+
+  /// Daily income/expense totals for each day in [start, end] inclusive,
+  /// oldest first. Same per-day aggregation as [getDailyTotals] used to do
+  /// directly, but over an explicit range instead of "last N days ending
+  /// today" — powers the Analytics screen's week-by-week navigation.
+  /// Shape matches `AnalyticsScreen`'s daily trend card:
+  /// `{ 'date': DateTime, 'income': double, 'expenses': double }`.
+  Future<List<Map<String, dynamic>>> getDailyTotalsForRange(
+      DateTime start, DateTime end) async {
+    final all = await _transactionRepo.getAll();
+    final startDate = DateTime(start.year, start.month, start.day);
+    final endDate = DateTime(end.year, end.month, end.day);
+    final result = <Map<String, dynamic>>[];
+
+    for (var day = startDate;
+        !day.isAfter(endDate);
+        day = day.add(const Duration(days: 1))) {
+      final dayStr = DateFormatter.toDbDate(day);
+      final inDay = all.where((t) => t.date.startsWith(dayStr));
+
+      double income = 0;
+      double expenses = 0;
+      for (final t in inDay) {
+        if (t.type == TransactionType.income) {
+          income += t.amount;
+        } else {
+          expenses += t.amount;
+        }
+      }
+
+      result.add({'date': day, 'income': income, 'expenses': expenses});
+    }
+
+    return result;
+  }
+
+  /// Monthly income/expense/saved totals for the last [monthsBack] months,
+  /// oldest first, current month included. Reuses the existing
+  /// [getIncomeVsExpensesByMonth] aggregation instead of duplicating it.
+  /// Shape matches what `AnalyticsScreen._load()` expects:
+  /// `{ 'month': DateTime, 'income': double, 'expenses': double, 'saved': double }`.
+  Future<List<Map<String, dynamic>>> getMonthlyTotals(int monthsBack) async {
+    final now = DateTime.now();
+    final points = await getIncomeVsExpensesByMonth(
+      now.year,
+      now.month,
+      monthsBack: monthsBack,
+    );
+
+    return points
+        .map((p) => {
+              'month': DateTime(p.year, p.month, 1),
+              'income': p.income,
+              'expenses': p.expenses,
+              'saved': p.income - p.expenses,
+            })
+        .toList();
+  }
+
   // --- Time analytics (§12-13) -------------------------------------------------
 
   Map<String, double> getTimeReportByCategory(List<Schedule> items) {

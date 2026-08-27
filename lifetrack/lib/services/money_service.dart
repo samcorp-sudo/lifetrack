@@ -152,7 +152,7 @@ class MoneyService {
 
   Future<List<Asset>> getAssets() => _assetRepo.getAll();
 
-  Future<int> createAsset(Asset asset) => _assetRepo.create(asset);
+  Future<int> createAsset(Asset asset, double d) => _assetRepo.create(asset);
 
   Future<void> updateAsset(Asset asset) => _assetRepo.update(asset);
 
@@ -167,7 +167,7 @@ class MoneyService {
 
   Future<List<Liability>> getLiabilities() => _liabilityRepo.getAll();
 
-  Future<int> createLiability(Liability liability) => _liabilityRepo.create(liability);
+  Future<int> createLiability(Liability liability, double d) => _liabilityRepo.create(liability);
 
   Future<void> updateLiability(Liability liability) => _liabilityRepo.update(liability);
 

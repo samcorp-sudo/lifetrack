@@ -112,4 +112,20 @@ class GoalService {
 
   Future<List<SkillSession>> getSkillSessions(int skillId) =>
       _skillSessionRepo.getBySkill(skillId);
+
+  /// Creates a new skill from just a name, starting at 0% progress.
+  /// Convenience wrapper around [addSkill] for screens (e.g. the Skills
+  /// screen "add skill" sheet) that only collect a name up front.
+  ///
+  /// NOTE: this was previously an empty stub (`async {}`) that never
+  /// touched the repository at all — that's why newly "created" skills
+  /// never showed up. Fixed by actually building a Skill and delegating
+  /// to addSkill/_skillRepo.create.
+  Future<int> createSkill(String name) {
+    final skill = Skill(
+      name: name,
+      progress: 0,
+    );
+    return addSkill(skill);
+  }
 }
