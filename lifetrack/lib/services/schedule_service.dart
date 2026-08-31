@@ -49,9 +49,11 @@ class ScheduleService {
   /// The next upcoming block on today's schedule, given the current time
   /// as 'HH:mm' (e.g. Dashboard "⏰ Next: Coding — 2:00 PM").
   Future<Schedule?> getNextItem(String date, String currentTime) async {
-    final items = await _scheduleRepo.getByDate(date);
+    final items = await _scheduleRepo.getAll();
+    final currentKey = '$date $currentTime';
+
     for (final item in items) {
-      if (item.startTime.compareTo(currentTime) >= 0) {
+      if ('${item.date} ${item.startTime}'.compareTo(currentKey) >= 0) {
         return item;
       }
     }
@@ -65,20 +67,23 @@ class ScheduleService {
   /// aware that e.g. Saturday farming (8AM-4PM) is already occupied, so
   /// it won't suggest coding during that block.
   Future<List<FreeTimeBlock>> getFreeTimeBlocks(String date) async {
-    final items = await _scheduleRepo.getByDate(date); // already sorted by start_time
+    final items =
+        await _scheduleRepo.getByDate(date); // already sorted by start_time
     final blocks = <FreeTimeBlock>[];
 
     String cursor = AppConstants.dayStartTime;
     for (final item in items) {
       if (item.startTime.compareTo(cursor) > 0) {
-        blocks.add(FreeTimeBlock(date: date, start: cursor, end: item.startTime));
+        blocks
+            .add(FreeTimeBlock(date: date, start: cursor, end: item.startTime));
       }
       if (item.endTime.compareTo(cursor) > 0) {
         cursor = item.endTime;
       }
     }
     if (cursor.compareTo(AppConstants.dayEndTime) < 0) {
-      blocks.add(FreeTimeBlock(date: date, start: cursor, end: AppConstants.dayEndTime));
+      blocks.add(FreeTimeBlock(
+          date: date, start: cursor, end: AppConstants.dayEndTime));
     }
 
     return blocks.where((b) => b.minutes >= 10).toList();
@@ -88,7 +93,8 @@ class ScheduleService {
   /// block — used to avoid recommending an activity during, say, farming time.
   Future<bool> isBusyAt(String date, String time) async {
     final items = await _scheduleRepo.getByDate(date);
-    return items.any((i) => time.compareTo(i.startTime) >= 0 && time.compareTo(i.endTime) < 0);
+    return items.any((i) =>
+        time.compareTo(i.startTime) >= 0 && time.compareTo(i.endTime) < 0);
   }
 
   // --- Tasks (Phase 4 §4) ------------------------------------------------------
@@ -121,13 +127,15 @@ class FreeTimeBlock {
   final String start;
   final String end;
 
-  const FreeTimeBlock({required this.date, required this.start, required this.end});
+  const FreeTimeBlock(
+      {required this.date, required this.start, required this.end});
 
   int get minutes {
     int toMinutes(String hhmm) {
       final parts = hhmm.split(':');
       return int.parse(parts[0]) * 60 + int.parse(parts[1]);
     }
+
     return toMinutes(end) - toMinutes(start);
   }
 }

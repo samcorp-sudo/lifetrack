@@ -7,6 +7,7 @@ class Account {
   final String type;
   final double balance;
   final String createdAt;
+  final double interestRate; // % per year, e.g. 2.5 = 2.5%/yr
 
   const Account({
     this.id,
@@ -14,6 +15,7 @@ class Account {
     required this.type,
     required this.balance,
     required this.createdAt,
+    this.interestRate = 0,
   });
 
   Map<String, dynamic> toMap() {
@@ -23,6 +25,7 @@ class Account {
       AccountsTable.colType: type,
       AccountsTable.colBalance: balance,
       AccountsTable.colCreatedAt: createdAt,
+      AccountsTable.colInterestRate: interestRate,
     };
   }
 
@@ -33,6 +36,7 @@ class Account {
       type: map[AccountsTable.colType] as String,
       balance: (map[AccountsTable.colBalance] as num).toDouble(),
       createdAt: map[AccountsTable.colCreatedAt] as String,
+      interestRate: ((map[AccountsTable.colInterestRate] as num?) ?? 0).toDouble(),
     );
   }
 
@@ -42,6 +46,7 @@ class Account {
     String? type,
     double? balance,
     String? createdAt,
+    double? interestRate,
   }) {
     return Account(
       id: id ?? this.id,
@@ -49,6 +54,7 @@ class Account {
       type: type ?? this.type,
       balance: balance ?? this.balance,
       createdAt: createdAt ?? this.createdAt,
+      interestRate: interestRate ?? this.interestRate,
     );
   }
 }

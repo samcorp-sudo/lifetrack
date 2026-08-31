@@ -31,24 +31,32 @@ class LifeTrackCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final stroke = isDark ? LifeTrackColors.strokeDark : LifeTrackColors.strokeLight;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final stroke =
+        isDark ? LifeTrackColors.strokeDark : LifeTrackColors.strokeLight;
+    final radius = BorderRadius.circular(LifeTrackMetrics.cardRadius);
 
-    return Material(
-      color: backgroundColor ?? Theme.of(context).cardColor,
-      borderRadius: BorderRadius.circular(LifeTrackMetrics.cardRadius),
+    final card = Material(
+      color: backgroundColor ?? theme.cardColor,
+      borderRadius: radius,
+      clipBehavior: Clip.antiAlias, // keeps child content within the rounded shape
       child: InkWell(
-        borderRadius: BorderRadius.circular(LifeTrackMetrics.cardRadius),
+        borderRadius: radius,
         onTap: onTap,
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(LifeTrackMetrics.cardRadius),
+            borderRadius: radius,
             border: Border.all(color: stroke),
           ),
           child: child,
         ),
       ),
     );
+
+    // Announce the whole card as a single tappable element when it
+    // navigates, instead of the child's individual text/icons.
+    return onTap == null ? card : Semantics(button: true, child: card);
   }
 }

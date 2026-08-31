@@ -6,6 +6,18 @@
 //   this widget never contains business logic itself.
 // - `isLoading` is wired up (shows a spinner) so async save/submit handlers
 //   in later phases (e.g. saving a transaction) have something to flip on.
+//
+// IMPROVEMENTS OVER PREVIOUS VERSION (visual only — the public API, style
+// enum, and every call site are unchanged):
+// - Disabled state (onPressed == null, not loading) is now visually dimmed.
+//   Previously a disabled button looked identical to an enabled one — same
+//   full-opacity background and text — so there was no way to tell a
+//   button couldn't be tapped without trying it.
+// - Ripple/splash color is now derived from each style's own foreground
+//   color instead of the theme's default splash, so tap feedback looks
+//   intentional on every style (especially `ghost` and `secondary`, where
+//   the default splash could look too dark or too bright against a custom
+//   background).
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -34,6 +46,7 @@ class LifeTrackButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final disabled = onPressed == null && !isLoading;
 
     Color bg;
     Color fg;
@@ -59,6 +72,19 @@ class LifeTrackButton extends StatelessWidget {
         break;
     }
 
+    if (disabled) {
+      bg = style == LifeTrackButtonStyle.ghost
+          ? bg
+          : bg.withValues(alpha: 0.35);
+      fg = fg.withValues(alpha: 0.4);
+      if (border != null) {
+        border = Border.all(
+          color: (isDark ? LifeTrackColors.strokeDark : LifeTrackColors.strokeLight)
+              .withValues(alpha: 0.4),
+        );
+      }
+    }
+
     final child = isLoading
         ? SizedBox(
             height: 18,
@@ -81,6 +107,8 @@ class LifeTrackButton extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(LifeTrackMetrics.chipRadius),
           onTap: isLoading ? null : onPressed,
+          splashColor: fg.withValues(alpha: 0.12),
+          highlightColor: fg.withValues(alpha: 0.06),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             decoration: BoxDecoration(

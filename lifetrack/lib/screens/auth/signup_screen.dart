@@ -123,9 +123,10 @@ class _SignupScreenState extends State<SignupScreen> {
                     onFieldSubmitted: (_) => _passwordFocusNode.requestFocus(),
                     decoration: _fieldDecoration(
                         context, 'Email', Icons.mail_outline_rounded),
-                    validator: (value) => (value == null || !value.contains('@'))
-                        ? 'Enter a valid email'
-                        : null,
+                    validator: (value) =>
+                        (value == null || !value.contains('@'))
+                            ? 'Enter a valid email'
+                            : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -168,17 +169,16 @@ class _SignupScreenState extends State<SignupScreen> {
                       'Confirm password',
                       Icons.lock_outline_rounded,
                       suffixIcon: IconButton(
-                        onPressed: () => setState(
-                            () => _obscureConfirm = !_obscureConfirm),
+                        onPressed: () =>
+                            setState(() => _obscureConfirm = !_obscureConfirm),
                         icon: Icon(
                           _obscureConfirm
                               ? Icons.visibility_outlined
                               : Icons.visibility_off_outlined,
                           size: 20,
                         ),
-                        tooltip: _obscureConfirm
-                            ? 'Show password'
-                            : 'Hide password',
+                        tooltip:
+                            _obscureConfirm ? 'Show password' : 'Hide password',
                       ),
                     ),
                     validator: (value) => (value != _passwordController.text)
@@ -223,8 +223,10 @@ class _SignupScreenState extends State<SignupScreen> {
           Expanded(
             child: Text(
               message,
-              style:
-                  Theme.of(context).textTheme.bodyMedium?.copyWith(color: error),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: error),
             ),
           ),
         ],

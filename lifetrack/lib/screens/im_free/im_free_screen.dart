@@ -25,14 +25,14 @@ class _ImFreeScreenState extends State<ImFreeScreen> {
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom),
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
           child: Container(
             padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
             decoration: BoxDecoration(
               color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(24)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(24)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -43,7 +43,10 @@ class _ImFreeScreenState extends State<ImFreeScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.3),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -53,10 +56,8 @@ class _ImFreeScreenState extends State<ImFreeScreen> {
                     style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 4),
                 Text('Drag to set how many minutes you have',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: Colors.grey)),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
                 const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -75,7 +76,8 @@ class _ImFreeScreenState extends State<ImFreeScreen> {
                   data: SliderThemeData(
                     activeTrackColor: LifeTrackColors.highlight,
                     thumbColor: LifeTrackColors.highlight,
-                    overlayColor: LifeTrackColors.highlight.withValues(alpha: 0.15),
+                    overlayColor:
+                        LifeTrackColors.highlight.withValues(alpha: 0.15),
                     inactiveTrackColor:
                         LifeTrackColors.highlight.withValues(alpha: 0.15),
                   ),
@@ -91,8 +93,7 @@ class _ImFreeScreenState extends State<ImFreeScreen> {
                 LifeTrackButton(
                   label: 'USE ${draft.round()} MINUTES',
                   fullWidth: true,
-                  onPressed: () =>
-                      Navigator.of(context).pop(draft.round()),
+                  onPressed: () => Navigator.of(context).pop(draft.round()),
                 ),
               ],
             ),
@@ -118,7 +119,10 @@ class _ImFreeScreenState extends State<ImFreeScreen> {
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.grey.withValues(alpha: 0.08),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant
+                            .withValues(alpha: 0.08),
                       ),
                       child: const Icon(Icons.arrow_back_rounded, size: 20),
                     ),
@@ -186,10 +190,8 @@ class _Picker extends StatelessWidget {
               style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 4),
           Text("I'll match tasks that fit your window",
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Colors.grey)),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
           const SizedBox(height: 24),
           GridView.count(
             crossAxisCount: 2,
@@ -219,7 +221,10 @@ class _Picker extends StatelessWidget {
                           style: Theme.of(context)
                               .textTheme
                               .bodySmall
-                              ?.copyWith(color: Colors.grey)),
+                              ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant)),
                     ],
                   ),
                 ),
@@ -260,7 +265,7 @@ class _Suggestions extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                     const Icon(Icons.bolt_rounded,
+                      const Icon(Icons.bolt_rounded,
                           size: 16, color: LifeTrackColors.highlight),
                       const SizedBox(width: 6),
                       Text('$minutes MIN · ${tasks.length} OPTIONS',
@@ -284,7 +289,11 @@ class _Suggestions extends StatelessWidget {
                   child: Column(
                     children: [
                       Icon(Icons.self_improvement_rounded,
-                          size: 40, color: Colors.grey.withValues(alpha: 0.5)),
+                          size: 40,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant
+                              .withValues(alpha: 0.5)),
                       const SizedBox(height: 12),
                       Text('Nothing on your list right now',
                           style: Theme.of(context).textTheme.titleMedium),
@@ -293,7 +302,10 @@ class _Suggestions extends StatelessWidget {
                           style: Theme.of(context)
                               .textTheme
                               .bodySmall
-                              ?.copyWith(color: Colors.grey)),
+                              ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant)),
                     ],
                   ),
                 )
@@ -307,8 +319,8 @@ class _Suggestions extends StatelessWidget {
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color:
-                                    LifeTrackColors.highlight.withValues(alpha: 0.12),
+                                color: LifeTrackColors.highlight
+                                    .withValues(alpha: 0.12),
                               ),
                               child: const Icon(Icons.task_alt_rounded,
                                   size: 18, color: LifeTrackColors.highlight),
@@ -324,7 +336,10 @@ class _Suggestions extends StatelessWidget {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: Colors.grey.withValues(alpha: .08),
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant
+                                    .withValues(alpha: .08),
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Row(

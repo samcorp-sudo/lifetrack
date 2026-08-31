@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/task.dart';
+import '../../core/utilities/date_formatter.dart';
 import '../../services/schedule_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/lifetrack_card.dart';
@@ -43,15 +44,42 @@ class _TasksScreenState extends State<TasksScreen> {
 
   Future<void> _openAddTaskDialog() async {
     final controller = TextEditingController();
+    var dueDate = DateTime.now();
     final task = await showDialog<Task>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Add task'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(labelText: 'Task title'),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(labelText: 'Task title'),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () async {
+                    final selected = await showDatePicker(
+                      context: dialogContext,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                      initialDate: dueDate,
+                    );
+                    if (selected != null) {
+                      setDialogState(() => dueDate = selected);
+                    }
+                  },
+                  icon: const Icon(Icons.calendar_today_outlined),
+                  label: Text('Due ${DateFormatter.toDisplayDate(dueDate)}'),
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -62,7 +90,11 @@ class _TasksScreenState extends State<TasksScreen> {
             onPressed: () {
               final title = controller.text.trim();
               if (title.isNotEmpty) {
-                Navigator.pop(dialogContext, Task(title: title));
+                Navigator.pop(
+                    dialogContext,
+                    Task(
+                        title: title,
+                        dueDate: DateFormatter.toDbDate(dueDate)));
               }
             },
             child: const Text('Add'),
@@ -72,8 +104,15 @@ class _TasksScreenState extends State<TasksScreen> {
     );
     controller.dispose();
     if (task != null) {
-      await _service.addTask(task);
-      if (mounted) _reload();
+      try {
+        await _service.addTask(task);
+        if (mounted) _reload();
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Unable to save task.')));
+        }
+      }
     }
   }
 

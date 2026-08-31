@@ -11,10 +11,11 @@
 // from the name.
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../models/asset.dart';
 import '../../services/money_service.dart';
 import '../../theme/app_theme.dart';
+import '../../app/currency_controller.dart';
+
 import '../../widgets/lifetrack_card.dart';
 
 class AssetsScreen extends StatefulWidget {
@@ -47,7 +48,7 @@ class _AssetsScreenState extends State<AssetsScreen> {
     });
   }
 
-  String _peso(double value) => '₱${NumberFormat('#,##0').format(value)}';
+  String _peso(double value) => CurrencyController.format(value);
 
   IconData _iconForAsset(String name) {
     final key = name.toLowerCase();
@@ -112,7 +113,10 @@ class _AssetsScreenState extends State<AssetsScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.3),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -144,7 +148,10 @@ class _AssetsScreenState extends State<AssetsScreen> {
                     hintText: 'e.g. Savings account, Car, Gold',
                     errorText: nameError,
                     filled: true,
-                    fillColor: Colors.grey.withValues(alpha: 0.06),
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.06),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -160,10 +167,13 @@ class _AssetsScreenState extends State<AssetsScreen> {
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
                     hintText: 'Current value',
-                    prefixText: '₱ ',
+                    prefixText: '${CurrencyController.symbol} ',
                     errorText: valueError,
                     filled: true,
-                    fillColor: Colors.grey.withValues(alpha: 0.06),
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.06),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -231,14 +241,18 @@ class _AssetsScreenState extends State<AssetsScreen> {
       return;
     }
 
-    Navigator.of(sheetContext).pop();
-    await _service.createAsset(Asset(
-      name: name,
-      type: 'Other',
-      value: value!,
-      updatedAt: DateTime.now().toIso8601String(),
-    ));
-    _reload();
+    try {
+      await _service.createAsset(Asset(
+        name: name,
+        type: 'Other',
+        value: CurrencyController.toPhp(value!),
+        updatedAt: DateTime.now().toIso8601String(),
+      ));
+      if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+      if (mounted) _reload();
+    } catch (_) {
+      setErrors('Unable to save asset', null);
+    }
   }
 
   @override
@@ -256,13 +270,17 @@ class _AssetsScreenState extends State<AssetsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.error_outline_rounded,
-                        color: Colors.grey.withValues(alpha: 0.5), size: 32),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant
+                            .withValues(alpha: 0.5),
+                        size: 32),
                     const SizedBox(height: 8),
                     Text('Unable to load asset records.',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Colors.grey)),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
                     const SizedBox(height: 10),
                     TextButton.icon(
                       onPressed: _reload,
@@ -295,7 +313,10 @@ class _AssetsScreenState extends State<AssetsScreen> {
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.grey.withValues(alpha: 0.08),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant
+                              .withValues(alpha: 0.08),
                         ),
                         child: const Icon(Icons.arrow_back_rounded, size: 20),
                       ),
@@ -352,7 +373,10 @@ class _AssetsScreenState extends State<AssetsScreen> {
                           style: Theme.of(context)
                               .textTheme
                               .bodySmall
-                              ?.copyWith(color: Colors.grey),
+                              ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant),
                         ),
                       ],
                     ],
@@ -372,7 +396,10 @@ class _AssetsScreenState extends State<AssetsScreen> {
                           children: [
                             Icon(Icons.savings_rounded,
                                 size: 32,
-                                color: Colors.grey.withValues(alpha: 0.5)),
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant
+                                    .withValues(alpha: 0.5)),
                             const SizedBox(height: 8),
                             Text(
                               'No assets recorded yet.',
@@ -380,7 +407,10 @@ class _AssetsScreenState extends State<AssetsScreen> {
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
-                                  ?.copyWith(color: Colors.grey),
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
                             ),
                             const SizedBox(height: 10),
                             TextButton.icon(
@@ -466,7 +496,11 @@ class _AssetCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 2),
                 Icon(Icons.chevron_right_rounded,
-                    size: 18, color: Colors.grey.withValues(alpha: 0.6)),
+                    size: 18,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.6)),
               ],
             ),
             const SizedBox(height: 12),
@@ -475,7 +509,10 @@ class _AssetCard extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: share,
                 minHeight: 5,
-                backgroundColor: Colors.grey.withValues(alpha: 0.1),
+                backgroundColor: Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant
+                    .withValues(alpha: 0.1),
                 valueColor: AlwaysStoppedAnimation(color),
               ),
             ),

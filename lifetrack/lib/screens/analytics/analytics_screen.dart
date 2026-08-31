@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/analytics_service.dart';
 import '../../theme/app_theme.dart';
+import '../../app/currency_controller.dart';
 import '../../widgets/lifetrack_card.dart';
 
 class AnalyticsScreen extends StatefulWidget {
@@ -32,7 +33,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   static DateTime _mondayOf(DateTime d) {
     final date = DateTime(d.year, d.month, d.day);
-    return date.subtract(Duration(days: date.weekday - 1)); // weekday: Mon=1..Sun=7
+    return date
+        .subtract(Duration(days: date.weekday - 1)); // weekday: Mon=1..Sun=7
   }
 
   @override
@@ -82,11 +84,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     });
   }
 
-  String _peso(double value) => '₱${NumberFormat('#,##0').format(value)}';
+  String _peso(double value) => CurrencyController.format(value);
 
-  void _openSpendingDetail(
-      BuildContext context, String category, double amount, double total,
-      int rank, int totalCategories, Color color) {
+  void _openSpendingDetail(BuildContext context, String category, double amount,
+      double total, int rank, int totalCategories, Color color) {
     final daysElapsed = DateTime.now().day.clamp(1, 31);
     final perDay = amount / daysElapsed;
     final share = total == 0 ? 0.0 : amount / total;
@@ -109,7 +110,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.3),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurfaceVariant
+                      .withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -123,8 +127,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     shape: BoxShape.circle,
                     color: color.withValues(alpha: 0.12),
                   ),
-                  child: Icon(_iconForCategory(category),
-                      color: color, size: 22),
+                  child:
+                      Icon(_iconForCategory(category), color: color, size: 22),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -137,7 +141,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           style: Theme.of(context)
                               .textTheme
                               .labelSmall
-                              ?.copyWith(color: Colors.grey)),
+                              ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant)),
                     ],
                   ),
                 ),
@@ -151,10 +158,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text('total spent this month',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Colors.grey)),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -174,7 +179,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               child: LinearProgressIndicator(
                 value: share,
                 minHeight: 6,
-                backgroundColor: Colors.grey.withValues(alpha: 0.1),
+                backgroundColor: Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant
+                    .withValues(alpha: 0.1),
                 valueColor: AlwaysStoppedAnimation(color),
               ),
             ),
@@ -182,13 +190,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: 0.06),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant
+                    .withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.calendar_view_day_rounded,
-                      size: 16, color: Colors.grey),
+                  Icon(Icons.calendar_view_day_rounded,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
                   const SizedBox(width: 8),
                   Text('~${_peso(perDay)} / day so far this month',
                       style: Theme.of(context).textTheme.bodySmall),
@@ -222,20 +234,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     if (key.contains('food') || key.contains('grocer')) {
       return Icons.restaurant_rounded;
     }
-    if (key.contains('transport') || key.contains('gas') || key.contains('fuel')) {
+    if (key.contains('transport') ||
+        key.contains('gas') ||
+        key.contains('fuel')) {
       return Icons.directions_car_rounded;
     }
-    if (key.contains('bill') || key.contains('utilit')) {
+    if (key.contains('bill') || key.contains('utility')) {
       return Icons.receipt_long_rounded;
     }
-    if (key.contains('shop')) return Icons.shopping_bag_rounded;
-    if (key.contains('health') || key.contains('medic')) {
+    if (key.contains('shop') ||
+    key.contains('grocery')) {
+      return Icons.shopping_bag_rounded;
+    }
+    if (key.contains('health') || key.contains('medic') ||
+    key.contains('hospital')) {
       return Icons.local_hospital_rounded;
     }
     if (key.contains('entertain') || key.contains('fun')) {
       return Icons.movie_rounded;
     }
-    if (key.contains('educat') || key.contains('school')) {
+    if (key.contains('education') || key.contains('school')) {
       return Icons.school_rounded;
     }
     if (key.contains('rent') || key.contains('housing')) {
@@ -258,7 +276,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.error_outline_rounded,
-                        color: Colors.grey.withValues(alpha: 0.5), size: 32),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant
+                            .withValues(alpha: 0.5),
+                        size: 32),
                     const SizedBox(height: 8),
                     const Text('Unable to load analytics records.'),
                   ],
@@ -267,8 +289,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             }
 
             final month = snapshot.data!['month'] as Map<String, double>;
-            final spending =
-                snapshot.data!['spending'] as Map<String, double>;
+            final spending = snapshot.data!['spending'] as Map<String, double>;
             final monthly =
                 snapshot.data!['monthly'] as List<Map<String, dynamic>>? ??
                     const <Map<String, dynamic>>[];
@@ -276,8 +297,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             final income = month['income'] ?? 0;
             final expenses = month['expenses'] ?? 0;
             final saved = month['saved'] ?? 0;
-            final spentTotal =
-                spending.values.fold<double>(0, (a, b) => a + b);
+            final spentTotal = spending.values.fold<double>(0, (a, b) => a + b);
             final sortedSpending = spending.entries.toList()
               ..sort((a, b) => b.value.compareTo(a.value));
 
@@ -299,10 +319,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.grey.withValues(alpha: 0.08),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant
+                              .withValues(alpha: 0.08),
                         ),
-                        child:
-                            const Icon(Icons.arrow_back_rounded, size: 20),
+                        child: const Icon(Icons.arrow_back_rounded, size: 20),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -313,7 +335,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.grey.withValues(alpha: 0.08),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant
+                            .withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Row(
@@ -394,7 +419,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           Container(
                             width: 1,
                             height: 32,
-                            color: Colors.grey.withValues(alpha: 0.15),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant
+                                .withValues(alpha: 0.15),
                           ),
                           Expanded(
                             child: _StatBlock(
@@ -415,8 +443,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 FutureBuilder<List<Map<String, dynamic>>>(
                   future: _dailyFuture,
                   builder: (context, dailySnapshot) {
-                    final daily = dailySnapshot.data ??
-                        const <Map<String, dynamic>>[];
+                    final daily =
+                        dailySnapshot.data ?? const <Map<String, dynamic>>[];
                     return _WeeklyTrendCard(
                       daily: daily,
                       peso: _peso,
@@ -464,7 +492,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                               children: [
                                 Icon(Icons.receipt_long_rounded,
                                     size: 32,
-                                    color: Colors.grey.withValues(alpha: 0.5)),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant
+                                        .withValues(alpha: 0.5)),
                                 const SizedBox(height: 8),
                                 Text(
                                   'No expenses recorded this month.',
@@ -472,7 +503,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall
-                                      ?.copyWith(color: Colors.grey),
+                                      ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant),
                                 ),
                               ],
                             ),
@@ -482,9 +516,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         ...List.generate(sortedSpending.length, (i) {
                           final entry = sortedSpending[i];
                           final color = palette[i % palette.length];
-                          final ratio = spentTotal == 0
-                              ? 0.0
-                              : entry.value / spentTotal;
+                          final ratio =
+                              spentTotal == 0 ? 0.0 : entry.value / spentTotal;
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 14),
                             child: InkWell(
@@ -499,8 +532,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 color,
                               ),
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
                                     children: [
@@ -524,13 +556,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                               .textTheme
                                               .titleMedium
                                               ?.copyWith(
-                                                  fontWeight:
-                                                      FontWeight.w600)),
+                                                  fontWeight: FontWeight.w600)),
                                       const SizedBox(width: 4),
                                       Icon(Icons.chevron_right_rounded,
                                           size: 18,
-                                          color:
-                                              Colors.grey.withValues(alpha: 0.6)),
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant
+                                              .withValues(alpha: 0.6)),
                                     ],
                                   ),
                                   const SizedBox(height: 6),
@@ -539,10 +572,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                     child: LinearProgressIndicator(
                                       value: ratio,
                                       minHeight: 5,
-                                      backgroundColor:
-                                          Colors.grey.withValues(alpha: 0.1),
-                                      valueColor:
-                                          AlwaysStoppedAnimation(color),
+                                      backgroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant
+                                          .withValues(alpha: 0.1),
+                                      valueColor: AlwaysStoppedAnimation(color),
                                     ),
                                   ),
                                 ],
@@ -654,7 +688,10 @@ class _WeeklyTrendCard extends StatelessWidget {
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.grey.withValues(alpha: 0.08),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.08),
                   ),
                   child: const Icon(Icons.chevron_left_rounded, size: 18),
                 ),
@@ -674,14 +711,19 @@ class _WeeklyTrendCard extends StatelessWidget {
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.grey
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
                         .withValues(alpha: isCurrentWeek ? 0.04 : 0.08),
                   ),
                   child: Icon(
                     Icons.chevron_right_rounded,
                     size: 18,
                     color: isCurrentWeek
-                        ? Colors.grey.withValues(alpha: 0.3)
+                        ? Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant
+                            .withValues(alpha: 0.3)
                         : null,
                   ),
                 ),
@@ -710,10 +752,10 @@ class _WeeklyTrendCard extends StatelessWidget {
                 child: Column(
                   children: [
                     Text('No data for this week.',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Colors.grey)),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
                     const SizedBox(height: 10),
                     TextButton.icon(
                       onPressed: onRetry,
@@ -804,7 +846,9 @@ class _DayColumn extends StatelessWidget {
         Text(
           DateFormat('E').format(date).substring(0, 1),
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: isToday ? LifeTrackColors.highlight : Colors.grey,
+              color: isToday
+                  ? LifeTrackColors.highlight
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
               fontWeight: isToday ? FontWeight.bold : FontWeight.normal),
         ),
       ],
@@ -847,10 +891,10 @@ class _MonthlyTrendCard extends StatelessWidget {
                 child: Column(
                   children: [
                     Text('Not enough data yet.',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Colors.grey)),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
                     const SizedBox(height: 10),
                     TextButton.icon(
                       onPressed: onRetry,
@@ -908,8 +952,7 @@ class _MonthColumn extends StatelessWidget {
     final isCurrent = month.year == DateTime.now().year &&
         month.month == DateTime.now().month;
     final barHeight = (saved.abs() / maxValue) * maxHeight;
-    final color =
-        saved >= 0 ? LifeTrackColors.mint : LifeTrackColors.coral;
+    final color = saved >= 0 ? LifeTrackColors.mint : LifeTrackColors.coral;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
@@ -920,7 +963,7 @@ class _MonthColumn extends StatelessWidget {
               : saved.abs().toStringAsFixed(0),
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
               fontSize: 9,
-              color: Colors.grey,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal),
         ),
         const SizedBox(height: 4),
@@ -936,7 +979,9 @@ class _MonthColumn extends StatelessWidget {
         Text(
           DateFormat('MMM').format(month),
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: isCurrent ? LifeTrackColors.highlight : Colors.grey,
+              color: isCurrent
+                  ? LifeTrackColors.highlight
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
               fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal),
         ),
       ],
@@ -960,10 +1005,8 @@ class _LegendDot extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Text(label,
-              style: Theme.of(context)
-                  .textTheme
-                  .labelSmall
-                  ?.copyWith(color: Colors.grey)),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
         ],
       );
 }

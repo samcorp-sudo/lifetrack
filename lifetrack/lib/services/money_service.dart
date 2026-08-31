@@ -216,4 +216,38 @@ class MoneyService {
     if (inMonth.isEmpty) return null;
     return inMonth.last.netWorth;
   }
+
+  Future<List<Transaction>> getAllTransactions() => _transactionRepo.getAll();
+
+  Future<List<Transaction>> getTransactionsForAccount(int accountId) =>
+      _transactionRepo.getByAccount(accountId);
+
+  Future<void> addBalance(
+    Account account,
+    double amount, {
+    String? note,
+  }) async {
+    if (account.id == null) throw ArgumentError('Account must be saved first.');
+    await recordTransaction(Transaction(
+      accountId: account.id!,
+      type: TransactionType.income,
+      amount: amount,
+      category: 'Deposit',
+      note: note,
+      date: DateTime.now().toIso8601String().substring(0, 10),
+    ));
+  }
+
+  Future<void> applyInterest(Account account) async {
+    if (account.id == null) throw ArgumentError('Account must be saved first.');
+    final amount = account.balance * account.interestRate / 100;
+    if (amount <= 0) return;
+    await recordTransaction(Transaction(
+      accountId: account.id!,
+      type: TransactionType.income,
+      amount: amount,
+      category: 'Interest',
+      date: DateTime.now().toIso8601String().substring(0, 10),
+    ));
+  }
 }

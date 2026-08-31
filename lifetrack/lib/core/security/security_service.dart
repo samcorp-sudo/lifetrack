@@ -18,6 +18,7 @@ class SecurityService {
   static const _pinHashKey = 'security.pin_hash';
   static const _pinSaltKey = 'security.pin_salt';
   static const _pinLengthKey = 'security.pin_length';
+  static const _configuredUserKey = 'security.configured_user';
   static const _biometricKey = 'security.biometric_enabled';
   static const _autoLockMinutesKey = 'security.auto_lock_minutes';
 
@@ -33,6 +34,13 @@ class SecurityService {
 
   Future<bool> hasPin() async =>
       (await _storage.read(key: _pinHashKey)) != null;
+
+  Future<bool> hasPinForUser(String userId) async =>
+      await hasPin() &&
+      (await _storage.read(key: _configuredUserKey)) == userId;
+
+  Future<void> setConfiguredUser(String userId) async =>
+      _storage.write(key: _configuredUserKey, value: userId);
 
   Future<void> setPin(String pin) async {
     if (!RegExp(r'^\d{4}$').hasMatch(pin)) {
@@ -61,6 +69,7 @@ class SecurityService {
     await _storage.delete(key: _pinHashKey);
     await _storage.delete(key: _pinSaltKey);
     await _storage.delete(key: _pinLengthKey);
+    await _storage.delete(key: _configuredUserKey);
     await setAppLockEnabled(false);
   }
 
@@ -69,6 +78,7 @@ class SecurityService {
     await _storage.delete(key: _pinHashKey);
     await _storage.delete(key: _pinSaltKey);
     await _storage.delete(key: _pinLengthKey);
+    await _storage.delete(key: _configuredUserKey);
     await _storage.delete(key: _biometricKey);
     await _storage.delete(key: _autoLockMinutesKey);
   }

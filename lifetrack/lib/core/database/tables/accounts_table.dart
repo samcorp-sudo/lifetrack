@@ -8,6 +8,7 @@ class AccountsTable {
   static const String colType = 'type';
   static const String colBalance = 'balance';
   static const String colCreatedAt = 'created_at';
+  static const String colInterestRate = 'interest_rate'; // % per year, new
 
   static const String createTable = '''
     CREATE TABLE $tableName (
@@ -15,7 +16,8 @@ class AccountsTable {
       $colName TEXT NOT NULL,
       $colType TEXT NOT NULL,
       $colBalance REAL NOT NULL DEFAULT 0,
-      $colCreatedAt TEXT NOT NULL
+      $colCreatedAt TEXT NOT NULL,
+      $colInterestRate REAL NOT NULL DEFAULT 0
     )
   ''';
 }

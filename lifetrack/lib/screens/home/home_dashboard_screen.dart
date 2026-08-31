@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/dashboard_service.dart';
 import '../../theme/app_theme.dart';
+import '../../app/currency_controller.dart';
 import '../../widgets/lifetrack_card.dart';
-import '../../widgets/money_card.dart';
+import '../../widgets/cards/money_card.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/schedule_card.dart';
 import '../../widgets/task_card.dart';
@@ -342,6 +343,5 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen>
     );
   }
 
-  String _peso(double value) =>
-      '₱${value.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (match) => '${match[1]},')}';
+  String _peso(double value) => CurrencyController.format(value);
 }

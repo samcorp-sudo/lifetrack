@@ -23,7 +23,9 @@
 import 'package:flutter/material.dart';
 import '../../models/goal.dart';
 import '../../services/goal_service.dart';
+import '../../app/currency_controller.dart';
 import '../../theme/app_theme.dart';
+
 import '../../widgets/goal_card.dart';
 import '../../widgets/lifetrack_card.dart';
 
@@ -125,7 +127,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
               controller: targetController,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Target amount'),
+              decoration: InputDecoration(
+                  labelText: 'Target amount (${CurrencyController.symbol})'),
             ),
           ],
         ),
@@ -141,7 +144,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
               if (name.isNotEmpty && target != null && target > 0) {
                 Navigator.pop(
                   dialogContext,
-                  Goal(name: name, targetAmount: target),
+                  Goal(
+                      name: name,
+                      targetAmount: CurrencyController.toPhp(target)),
                 );
               }
             },
@@ -153,8 +158,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
     nameController.dispose();
     targetController.dispose();
     if (goal != null) {
-      await _goalService.createGoal(goal);
-      if (mounted) _reload();
+      try {
+        await _goalService.createGoal(goal);
+        if (mounted) _reload();
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Unable to save goal.')));
+        }
+      }
     }
   }
 
@@ -259,6 +271,5 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
-  String _peso(double value) =>
-      '₱${value.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (match) => '${match[1]},')}';
+  String _peso(double value) => CurrencyController.format(value);
 }

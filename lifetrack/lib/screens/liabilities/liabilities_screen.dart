@@ -11,10 +11,11 @@
 // instead of guessing from the name.
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../models/liability.dart';
 import '../../services/money_service.dart';
 import '../../theme/app_theme.dart';
+import '../../app/currency_controller.dart';
+
 import '../../widgets/lifetrack_card.dart';
 
 class LiabilitiesScreen extends StatefulWidget {
@@ -39,7 +40,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
     });
   }
 
-  String _peso(double value) => '₱${NumberFormat('#,##0').format(value)}';
+  String _peso(double value) => CurrencyController.format(value);
 
   IconData _iconForLiability(String name) {
     final key = name.toLowerCase();
@@ -101,7 +102,10 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.3),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -132,7 +136,10 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
                     hintText: 'e.g. Credit card, Car loan, Mortgage',
                     errorText: nameError,
                     filled: true,
-                    fillColor: Colors.grey.withValues(alpha: 0.06),
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.06),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -148,10 +155,13 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
                     hintText: 'Outstanding amount',
-                    prefixText: '₱ ',
+                    prefixText: '${CurrencyController.symbol} ',
                     errorText: amountError,
                     filled: true,
-                    fillColor: Colors.grey.withValues(alpha: 0.06),
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.06),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -219,13 +229,17 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
       return;
     }
 
-    Navigator.of(sheetContext).pop();
-    await _service.createLiability(Liability(
-      name: name,
-      type: 'Other',
-      amount: amount!,
-    ));
-    _reload();
+    try {
+      await _service.createLiability(Liability(
+        name: name,
+        type: 'Other',
+        amount: CurrencyController.toPhp(amount!),
+      ));
+      if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+      if (mounted) _reload();
+    } catch (_) {
+      setErrors('Unable to save liability', null);
+    }
   }
 
   @override
@@ -244,13 +258,16 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.error_outline_rounded,
-                      color: Colors.grey.withValues(alpha: 0.5), size: 32),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withValues(alpha: 0.5),
+                      size: 32),
                   const SizedBox(height: 8),
                   Text('Unable to load liability records.',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: Colors.grey)),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant)),
                   const SizedBox(height: 10),
                   TextButton.icon(
                     onPressed: _reload,
@@ -283,7 +300,10 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.grey.withValues(alpha: 0.08),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant
+                            .withValues(alpha: 0.08),
                       ),
                       child: const Icon(Icons.arrow_back_rounded, size: 20),
                     ),
@@ -339,10 +359,9 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
                       const SizedBox(height: 4),
                       Text(
                         '${liabilities.length} ${liabilities.length == 1 ? 'liability' : 'liabilities'} tracked',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Colors.grey),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ],
@@ -363,7 +382,10 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
                         children: [
                           Icon(Icons.receipt_long_rounded,
                               size: 32,
-                              color: Colors.grey.withValues(alpha: 0.5)),
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant
+                                  .withValues(alpha: 0.5)),
                           const SizedBox(height: 8),
                           Text(
                             'No liabilities recorded yet.',
@@ -371,7 +393,10 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
                             style: Theme.of(context)
                                 .textTheme
                                 .bodySmall
-                                ?.copyWith(color: Colors.grey),
+                                ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant),
                           ),
                           const SizedBox(height: 10),
                           TextButton.icon(
@@ -455,7 +480,11 @@ class _LiabilityCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 2),
                 Icon(Icons.chevron_right_rounded,
-                    size: 18, color: Colors.grey.withValues(alpha: 0.6)),
+                    size: 18,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.6)),
               ],
             ),
             const SizedBox(height: 12),
@@ -464,7 +493,10 @@ class _LiabilityCard extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: share,
                 minHeight: 5,
-                backgroundColor: Colors.grey.withValues(alpha: 0.1),
+                backgroundColor: Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant
+                    .withValues(alpha: 0.1),
                 valueColor: const AlwaysStoppedAnimation(LifeTrackColors.coral),
               ),
             ),

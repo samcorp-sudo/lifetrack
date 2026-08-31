@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'services/auth_service.dart';
 import 'core/security/security_service.dart';
 import 'core/security/notification_services.dart';
 import 'navigation/main_shell.dart';
+import 'screens/auth/login_screen.dart';
 import 'theme/app_theme.dart';
 import 'app/theme_mode_controller.dart';
 import 'app/currency_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await CurrencyController.load();
   await NotificationService.initialize();
   runApp(const LifeTrackApp());
@@ -29,7 +34,178 @@ class LifeTrackApp extends StatelessWidget {
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: themeMode,
-          home: const AppLockGate(),
+          home: const _AuthGate(),
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthGate extends StatelessWidget {
+  const _AuthGate();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: AuthService().authStateChanges,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        }
+        return snapshot.hasData ? const AppLockGate() : const LoginScreen();
+      },
+    );
+  }
+}
+
+class _SecuritySetupScreen extends StatefulWidget {
+  const _SecuritySetupScreen();
+
+  @override
+  State<_SecuritySetupScreen> createState() => _SecuritySetupScreenState();
+}
+
+class _SecuritySetupScreenState extends State<_SecuritySetupScreen> {
+  final _security = SecurityService();
+  final _pin = TextEditingController();
+  bool _biometricAvailable = false;
+  bool _useBiometric = false;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometric();
+  }
+
+  @override
+  void dispose() {
+    _pin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkBiometric() async {
+    final available = await _security.isBiometricAvailable();
+    if (mounted) setState(() => _biometricAvailable = available);
+  }
+
+  void _appendSetupDigit(String digit) {
+    if (_saving || _pin.text.length >= 4) return;
+    setState(() {
+      _pin.text += digit;
+      _error = null;
+    });
+  }
+
+  void _removeSetupDigit() {
+    if (_saving || _pin.text.isEmpty) return;
+    setState(() {
+      _pin.text = _pin.text.substring(0, _pin.text.length - 1);
+      _error = null;
+    });
+  }
+
+  Future<void> _save() async {
+    if (!RegExp(r'^\d{4}$').hasMatch(_pin.text)) {
+      setState(() => _error = 'Enter exactly 4 digits.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await _security.setPin(_pin.text);
+      final userId = AuthService().currentUser?.uid;
+      if (userId == null) throw StateError('No signed-in user.');
+      await _security.setConfiguredUser(userId);
+      if (_useBiometric) {
+        final confirmed = await _security.authenticateBiometric();
+        if (!confirmed) {
+          await _security.setBiometricEnabled(false);
+          if (mounted) {
+            setState(() => _error = 'Biometric setup was not completed.');
+          }
+          return;
+        }
+        await _security.setBiometricEnabled(true);
+      }
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+            MaterialPageRoute<void>(builder: (_) => const MainShell()));
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Security setup failed. Try again.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Column(
+                children: [
+                  const Icon(Icons.security_rounded,
+                      size: 56, color: LifeTrackColors.highlight),
+                  const SizedBox(height: 18),
+                  Text('Secure your account',
+                      style: Theme.of(context).textTheme.headlineMedium),
+                  const SizedBox(height: 8),
+                  Text('Create a 4-digit PIN for quick access next time.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium),
+                  const SizedBox(height: 24),
+                  _PinIndicators(
+                    count: 4,
+                    filled: _pin.text.length,
+                    hasError: _error != null,
+                  ),
+                  const SizedBox(height: 18),
+                  _PinKeypad(
+                    onDigit: _appendSetupDigit,
+                    onBackspace: _removeSetupDigit,
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      _error!,
+                      style:
+                          TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  ],
+                  if (_biometricAvailable)
+                    CheckboxListTile(
+                      value: _useBiometric,
+                      onChanged: _saving
+                          ? null
+                          : (value) =>
+                              setState(() => _useBiometric = value ?? false),
+                      title: const Text('Enable biometric unlock'),
+                      subtitle: const Text(
+                          'Use the biometric already registered on this phone.'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                          onPressed: _saving ? null : _save,
+                          child: _saving
+                              ? const CircularProgressIndicator()
+                              : const Text('Continue'))),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -45,6 +221,7 @@ class AppLockGate extends StatefulWidget {
 
 class _AppLockGateState extends State<AppLockGate> {
   final _securityService = SecurityService();
+  final _authService = AuthService();
   bool? _lockEnabled;
 
   @override
@@ -63,7 +240,19 @@ class _AppLockGateState extends State<AppLockGate> {
     if (_lockEnabled == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return _lockEnabled! ? const LockScreen() : const MainShell();
+    final userId = _authService.currentUser?.uid;
+    if (userId == null) return const LoginScreen();
+    return FutureBuilder<bool>(
+      future: _securityService.hasPinForUser(userId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        }
+        if (!snapshot.data!) return const _SecuritySetupScreen();
+        return _lockEnabled! ? const LockScreen() : const MainShell();
+      },
+    );
   }
 }
 

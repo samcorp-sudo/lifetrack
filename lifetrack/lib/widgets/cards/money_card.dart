@@ -11,8 +11,8 @@
 // ============================================================================
 
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
-import 'lifetrack_card.dart';
+import '../../theme/app_theme.dart';
+import '../lifetrack_card.dart';
 
 class MoneyCard extends StatelessWidget {
   final String balanceLabel;

@@ -142,9 +142,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     onFieldSubmitted: (_) => _passwordFocusNode.requestFocus(),
                     decoration: _fieldDecoration(
                         context, 'Email', Icons.mail_outline_rounded),
-                    validator: (value) => (value == null || !value.contains('@'))
-                        ? 'Enter a valid email'
-                        : null,
+                    validator: (value) =>
+                        (value == null || !value.contains('@'))
+                            ? 'Enter a valid email'
+                            : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -198,7 +199,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 16),
                   TextButton(
                     onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (context) => const SignupScreen()),
+                      MaterialPageRoute(
+                          builder: (context) => const SignupScreen()),
                     ),
                     child: const Text("Don't have an account? Sign up"),
                   ),
@@ -226,8 +228,10 @@ class _LoginScreenState extends State<LoginScreen> {
           Expanded(
             child: Text(
               message,
-              style:
-                  Theme.of(context).textTheme.bodyMedium?.copyWith(color: error),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: error),
             ),
           ),
         ],

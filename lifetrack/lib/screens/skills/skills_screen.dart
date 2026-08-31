@@ -6,6 +6,16 @@
 //
 // If your service method has a different name/signature, adjust
 // `_submitNewSkill()` below accordingly.
+//
+// TODO(phase6): Tapping a _SkillCard currently shows a quick detail sheet
+// (name + percent) as a placeholder. Replace `_openSkillDetail` with
+// `Navigator.push(... SkillDetailScreen(skill) ...)` once that screen
+// exists, and drop the placeholder sheet.
+// TODO(phase6): once GoalService can delete/update skills, wire the
+// "Delete" button in the detail sheet (currently a no-op close) and add
+// an "Edit" path that reuses the add-skill sheet in edit mode.
+// TODO(phase6): once `Skill` has an `id`, use it as the ListView key
+// below instead of relying on list position.
 
 import 'package:flutter/material.dart';
 import '../../models/skill.dart';
@@ -70,7 +80,10 @@ class _SkillsScreenState extends State<SkillsScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.3),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -82,8 +95,8 @@ class _SkillsScreenState extends State<SkillsScreen> {
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: LifeTrackColors.highlight
-                            .withValues(alpha: 0.12),
+                        color:
+                            LifeTrackColors.highlight.withValues(alpha: 0.12),
                       ),
                       child: const Icon(Icons.school_rounded,
                           color: LifeTrackColors.highlight, size: 22),
@@ -102,7 +115,10 @@ class _SkillsScreenState extends State<SkillsScreen> {
                     hintText: 'e.g. Flutter, Spanish, Guitar',
                     errorText: errorText,
                     filled: true,
-                    fillColor: Colors.grey.withValues(alpha: 0.06),
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.06),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -154,9 +170,100 @@ class _SkillsScreenState extends State<SkillsScreen> {
       return;
     }
 
-    Navigator.of(sheetContext).pop();
-    await _goalService.createSkill(name);
-    _reload();
+    try {
+      await _goalService.createSkill(name);
+      if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+      if (mounted) _reload();
+    } catch (_) {
+      setError('Unable to save skill');
+    }
+  }
+
+  void _openSkillDetail(Skill skill, Color color) {
+    // TODO(phase6): replace this placeholder sheet with a real
+    // SkillDetailScreen push: Navigator.push(context,
+    // MaterialPageRoute(builder: (_) => SkillDetailScreen(skill)));
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: color.withValues(alpha: 0.12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(Icons.school_rounded, size: 22, color: color),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child:
+                          Text(skill.name, style: theme.textTheme.titleLarge),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Progress',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.textTheme.bodyMedium?.color
+                              ?.withValues(alpha: 0.6),
+                        )),
+                    Text('${(skill.percent * 100).round()}%',
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(color: color)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ProgressBar(
+                    value: skill.percent, color: color, label: skill.name),
+                // TODO(phase6): once `Skill` exposes createdAt / lastPracticed
+                // fields, show them here below the progress bar.
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        // TODO(phase6): open the add-skill sheet in edit
+                        // mode, pre-filled with this skill's name/progress.
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        child: const Text('Edit'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: LifeTrackColors.coral,
+                        ),
+                        // TODO(phase6): call GoalService delete for this
+                        // skill, then pop and _reload().
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        child: const Text('Delete'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -174,7 +281,10 @@ class _SkillsScreenState extends State<SkillsScreen> {
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.grey.withValues(alpha: 0.08),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.08),
                   ),
                   child: const Icon(Icons.arrow_back_rounded, size: 20),
                 ),
@@ -219,14 +329,20 @@ class _SkillsScreenState extends State<SkillsScreen> {
                       child: Column(
                         children: [
                           Icon(Icons.error_outline_rounded,
-                              color: Colors.grey.withValues(alpha: 0.5),
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant
+                                  .withValues(alpha: 0.5),
                               size: 32),
                           const SizedBox(height: 8),
                           Text('Unable to load skills.',
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
-                                  ?.copyWith(color: Colors.grey)),
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant)),
                           const SizedBox(height: 10),
                           TextButton.icon(
                             onPressed: _reload,
@@ -253,7 +369,10 @@ class _SkillsScreenState extends State<SkillsScreen> {
                         children: [
                           Icon(Icons.school_outlined,
                               size: 32,
-                              color: Colors.grey.withValues(alpha: 0.5)),
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant
+                                  .withValues(alpha: 0.5)),
                           const SizedBox(height: 8),
                           Text(
                             'No skills recorded yet.',
@@ -261,7 +380,10 @@ class _SkillsScreenState extends State<SkillsScreen> {
                             style: Theme.of(context)
                                 .textTheme
                                 .bodySmall
-                                ?.copyWith(color: Colors.grey),
+                                ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant),
                           ),
                           const SizedBox(height: 10),
                           TextButton.icon(
@@ -287,6 +409,8 @@ class _SkillsScreenState extends State<SkillsScreen> {
                       child: _SkillCard(
                         skill: skills[i],
                         color: _palette[i % _palette.length],
+                        onTap: () => _openSkillDetail(
+                            skills[i], _palette[i % _palette.length]),
                       ),
                     ),
                 ],
@@ -300,16 +424,18 @@ class _SkillsScreenState extends State<SkillsScreen> {
 }
 
 class _SkillCard extends StatelessWidget {
-  const _SkillCard({required this.skill, required this.color});
+  const _SkillCard(
+      {required this.skill, required this.color, required this.onTap});
   final Skill skill;
   final Color color;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return LifeTrackCard(
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () {},
+        onTap: onTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -326,7 +452,9 @@ class _SkillCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(skill.name,
-                      style: Theme.of(context).textTheme.titleMedium),
+                      style: Theme.of(context).textTheme.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
                 ),
                 Text(
                   '${(skill.percent * 100).round()}%',
@@ -337,7 +465,11 @@ class _SkillCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 2),
                 Icon(Icons.chevron_right_rounded,
-                    size: 18, color: Colors.grey.withValues(alpha: 0.6)),
+                    size: 18,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withValues(alpha: 0.6)),
               ],
             ),
             const SizedBox(height: 12),
