@@ -8,6 +8,7 @@ class Liability {
   final double amount;
   final String? dueDate;
   final String? note;
+  final String updatedAt;
 
   const Liability({
     this.id,
@@ -16,6 +17,7 @@ class Liability {
     required this.amount,
     this.dueDate,
     this.note,
+    required this.updatedAt,
   });
 
   Map<String, dynamic> toMap() {
@@ -26,6 +28,7 @@ class Liability {
       LiabilitiesTable.colAmount: amount,
       LiabilitiesTable.colDueDate: dueDate,
       LiabilitiesTable.colNote: note,
+      LiabilitiesTable.colUpdatedAt: updatedAt,
     };
   }
 
@@ -37,6 +40,7 @@ class Liability {
       amount: (map[LiabilitiesTable.colAmount] as num).toDouble(),
       dueDate: map[LiabilitiesTable.colDueDate] as String?,
       note: map[LiabilitiesTable.colNote] as String?,
+      updatedAt: map[LiabilitiesTable.colUpdatedAt] as String,
     );
   }
 
@@ -47,6 +51,7 @@ class Liability {
     double? amount,
     String? dueDate,
     String? note,
+    String? updatedAt,
   }) {
     return Liability(
       id: id ?? this.id,
@@ -55,6 +60,7 @@ class Liability {
       amount: amount ?? this.amount,
       dueDate: dueDate ?? this.dueDate,
       note: note ?? this.note,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 }

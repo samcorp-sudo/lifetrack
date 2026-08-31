@@ -9,6 +9,7 @@ class LiabilitiesTable {
   static const String colAmount = 'amount';
   static const String colDueDate = 'due_date';
   static const String colNote = 'note';
+  static const String colUpdatedAt = 'updated_at';
 
   static const String createTable = '''
     CREATE TABLE $tableName (
@@ -17,7 +18,8 @@ class LiabilitiesTable {
       $colType TEXT NOT NULL,
       $colAmount REAL NOT NULL DEFAULT 0,
       $colDueDate TEXT,
-      $colNote TEXT
+      $colNote TEXT,
+      $colUpdatedAt TEXT NOT NULL
     )
   ''';
 }

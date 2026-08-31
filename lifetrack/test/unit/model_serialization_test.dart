@@ -13,6 +13,7 @@ void main() {
 
     expect(asset.toMap()['name'], 'Laptop');
     expect(asset.toMap()['value'], 25000);
+    expect(asset.toMap()['updated_at'], '2026-08-27T00:00:00.000Z');
   });
 
   test('liability stores the entered name and amount', () {
@@ -20,9 +21,14 @@ void main() {
       name: 'Phone loan',
       type: 'Other',
       amount: 12000,
+      updatedAt: '2026-08-27T00:00:00.000Z',
     );
 
     expect(liability.toMap()['name'], 'Phone loan');
     expect(liability.toMap()['amount'], 12000);
+    expect(
+      liability.toMap()['updated_at'],
+      '2026-08-27T00:00:00.000Z',
+    );
   });
 }
