@@ -1,18 +1,18 @@
 // ============================================================================
 // Money Screen
 // ----------------------------------------------------------------------------
-// CHANGES IN THIS VERSION:
-// - Accounts are now tappable rows -> push AccountDetailScreen for that
-//   account (balance, add balance, interest, that account's transactions).
-// - Add flow matches the Schedule screen's pattern: an extended FAB
-//   ("Add") opening a bottom sheet with two options (Add transaction /
-//   Add account) via the same _AddOptionTile look, instead of a header
-//   PopupMenuButton.
-// - Recent Transactions is capped to 4 items with a "View All" row that
-//   pushes AllTransactionsScreen (grouped by week/month).
+// LAYOUT:
+// - Top bar (LifeTrack, notification bell with badge, profile avatar).
+// - Total Balance hero card in the active season color, with a LIVE chip,
+//   an eye toggle to hide / show the amount, and this month's net change.
+// - "Wallets" section with a "+ Add Wallet" pill and tappable wallet rows
+//   -> AccountDetailScreen.
+// - Income / Expenses summary cards.
+// - Recent Transactions capped to 4 with a "View All" row.
+// - Extended FAB ("Add") still opens the Add transaction / Add account sheet.
 //
 // UNCHANGED: MoneyService calls, CurrencyController usage, the two
-// add-transaction/add-account dialogs, colors, and data models.
+// add-transaction/add-account dialogs, and data models.
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -22,8 +22,8 @@ import '../../services/money_service.dart';
 import '../../theme/app_theme.dart';
 import '../../app/currency_controller.dart';
 
+import '../../widgets/app_top_bar.dart';
 import '../../widgets/lifetrack_card.dart';
-import '../../widgets/cards/money_card.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/transaction_item.dart';
 import 'account_detail_screen.dart';
@@ -39,11 +39,12 @@ class MoneyScreen extends StatefulWidget {
 class _MoneyScreenState extends State<MoneyScreen> {
   static const double _sectionGap = 20;
   static const double _rowGap = 12;
-  static const double _iconChipSize = 40;
+  static const double _iconChipSize = 44;
   static const int _recentTransactionsLimit = 4;
 
   final _moneyService = MoneyService();
   late Future<_MoneyData> _dataFuture;
+  bool _hideBalance = false;
 
   @override
   void initState() {
@@ -75,17 +76,20 @@ class _MoneyScreenState extends State<MoneyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final season = context.season;
+
     return SafeArea(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         floatingActionButton: FloatingActionButton.extended(
-          backgroundColor: LifeTrackColors.highlight,
+          heroTag: 'money_add_fab',
+          backgroundColor: season.accent,
           elevation: 2,
           onPressed: () => _openAddOptions(context),
-          icon: const Icon(Icons.add, color: LifeTrackColors.ink),
-          label: const Text('Add',
+          icon: Icon(Icons.add, color: season.onAccent),
+          label: Text('Add',
               style: TextStyle(
-                  color: LifeTrackColors.ink, fontWeight: FontWeight.w600)),
+                  color: season.onAccent, fontWeight: FontWeight.w600)),
         ),
         body: FutureBuilder<_MoneyData>(
           future: _dataFuture,
@@ -97,17 +101,33 @@ class _MoneyScreenState extends State<MoneyScreen> {
               return const Center(
                   child: Text('Unable to load wallet records.'));
             }
-            
+
             final data = snapshot.data!;
             return RefreshIndicator(
               onRefresh: _refresh,
               child: ListView(
                 padding: const EdgeInsets.all(LifeTrackMetrics.screenPadding),
                 children: [
-                  _header(context),
-                  const SizedBox(height: 18),
-                  MoneyCard(balanceLabel: _peso(data.totalBalance)),
+                  const AppTopBar(),
+                  const SizedBox(height: _sectionGap),
+                  _balanceCard(context, data),
+                  const SizedBox(height: _sectionGap),
+                  _walletsHeader(context),
                   const SizedBox(height: _rowGap),
+                  data.accounts.isEmpty
+                      ? LifeTrackCard(
+                          child:
+                              _emptyState(context, 'No wallets recorded yet.'))
+                      : Column(
+                          children: [
+                            for (final account in data.accounts)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _accountCard(context, account),
+                              ),
+                          ],
+                        ),
+                  const SizedBox(height: _sectionGap),
                   Row(
                     children: [
                       Expanded(
@@ -132,22 +152,6 @@ class _MoneyScreenState extends State<MoneyScreen> {
                     ],
                   ),
                   const SizedBox(height: _sectionGap),
-                  const SectionHeader(title: 'Accounts'),
-                  const SizedBox(height: 8),
-                  data.accounts.isEmpty
-                      ? LifeTrackCard(
-                          child:
-                              _emptyState(context, 'No accounts recorded yet.'))
-                      : Column(
-                          children: [
-                            for (final account in data.accounts)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: _accountCard(context, account),
-                              ),
-                          ],
-                        ),
-                  const SizedBox(height: _sectionGap),
                   _recentTransactionsHeader(context, data.transactions.length),
                   const SizedBox(height: 8),
                   LifeTrackCard(
@@ -157,7 +161,14 @@ class _MoneyScreenState extends State<MoneyScreen> {
                             children: data.transactions
                                 .take(_recentTransactionsLimit)
                                 .map((transaction) => TransactionItem(
-                                    entry: transaction, formatCurrency: _peso))
+                                      entry: transaction,
+                                      formatCurrency: _peso,
+                                      onDelete: () async {
+                                        await _moneyService
+                                            .deleteTransaction(transaction);
+                                        if (mounted) await _refresh();
+                                      },
+                                    ))
                                 .toList(),
                           ),
                   ),
@@ -168,6 +179,219 @@ class _MoneyScreenState extends State<MoneyScreen> {
           },
         ),
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Total Balance hero card
+  // ---------------------------------------------------------------------
+
+  Widget _balanceCard(BuildContext context, _MoneyData data) {
+    final s = context.season;
+    final theme = Theme.of(context);
+
+    final income = data.summary['income'] ?? 0;
+    final expenses = data.summary['expenses'] ?? 0;
+    final net = data.summary['saved'] ?? (income - expenses);
+    final positive = net >= 0;
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [s.accent, s.accentDeep],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: s.accent.withValues(alpha: 0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            // Soft decorative circles.
+            Positioned(right: -40, top: -50, child: _decorCircle(170)),
+            Positioned(right: 30, bottom: -70, child: _decorCircle(140)),
+            SizedBox(
+              width: double.infinity,
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Total Balance',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: s.onAccent.withValues(alpha: 0.75),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        _liveChip(context),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _hideBalance
+                                  ? '\u2022\u2022\u2022\u2022\u2022\u2022'
+                                  : _peso(data.totalBalance),
+                              style: theme.textTheme.displayLarge?.copyWith(
+                                color: s.onAccent,
+                                fontSize: 38,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () =>
+                              setState(() => _hideBalance = !_hideBalance),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              _hideBalance
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: s.onAccent.withValues(alpha: 0.85),
+                              size: 22,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(
+                          positive
+                              ? Icons.arrow_upward_rounded
+                              : Icons.arrow_downward_rounded,
+                          size: 16,
+                          color: s.onAccent.withValues(alpha: 0.85),
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            _hideBalance
+                                ? (positive
+                                    ? '+ \u2022\u2022\u2022\u2022 this month'
+                                    : '- \u2022\u2022\u2022\u2022 this month')
+                                : '${positive ? '+' : '-'} ${_peso(net.abs())} this month',
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: s.onAccent.withValues(alpha: 0.85),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _decorCircle(double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white.withValues(alpha: 0.10),
+      ),
+    );
+  }
+
+  Widget _liveChip(BuildContext context) {
+    final s = context.season;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: s.onAccent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: s.onAccent,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Live',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: s.onAccent,
+                  fontSize: 12,
+                  letterSpacing: 0,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Wallets header + "+ Add Wallet" pill
+  // ---------------------------------------------------------------------
+
+  Widget _walletsHeader(BuildContext context) {
+    final s = context.season;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const SectionHeader(title: 'Wallets'),
+        Material(
+          color: s.accent.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(999),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: () => _openAddAccountDialog(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add_rounded, size: 18, color: s.accentText),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Add Wallet',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: s.accentText,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -446,21 +670,6 @@ class _MoneyScreenState extends State<MoneyScreen> {
   String _formatTransactionDate(DateTime date) =>
       '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
-  Widget _header(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text('Wallet', style: Theme.of(context).textTheme.titleLarge),
-        ),
-        IconButton(
-          tooltip: 'Refresh',
-          onPressed: _refresh,
-          icon: const Icon(Icons.refresh_rounded),
-        ),
-      ],
-    );
-  }
-
   Widget _recentTransactionsHeader(BuildContext context, int shownCount) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -517,15 +726,20 @@ class _MoneyScreenState extends State<MoneyScreen> {
     );
   }
 
-  // Redesigned: whole account is now one tappable card -> AccountDetailScreen.
+  // Each wallet is one tappable card -> AccountDetailScreen.
   Widget _accountCard(BuildContext context, Account account) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final theme = Theme.of(context);
+    final tint = _accountTint(context, account.type);
+    final subtitle = account.interestRate > 0
+        ? '${account.type} \u00B7 ${account.interestRate}% APY'
+        : account.type;
+
     return LifeTrackCard(
       padding: EdgeInsets.zero,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(LifeTrackMetrics.cardRadius),
           onTap: () async {
             await Navigator.of(context).push(
               MaterialPageRoute(
@@ -546,68 +760,43 @@ class _MoneyScreenState extends State<MoneyScreen> {
                   height: _iconChipSize,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
+                    color: tint.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(_accountIcon(account.type),
-                      size: 20, color: primary),
+                  child:
+                      Icon(_accountIcon(account.type), size: 22, color: tint),
                 ),
                 const SizedBox(width: _rowGap),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(account.name,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyLarge
-                              ?.copyWith(fontWeight: FontWeight.w600)),
+                      Text(
+                        account.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium,
+                      ),
                       const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Text(
-                            account.type,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.color
-                                          ?.withValues(alpha: 0.6),
-                                    ),
-                          ),
-                          if (account.interestRate > 0) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: LifeTrackColors.mint
-                                    .withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                '${account.interestRate}% APY',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
-                                    ?.copyWith(
-                                      color: LifeTrackColors.mint,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                            ),
-                          ],
-                        ],
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium,
                       ),
                     ],
                   ),
                 ),
-                Text(_peso(account.balance),
-                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(width: 8),
+                Text(
+                  _hideBalance
+                      ? '\u2022\u2022\u2022\u2022\u2022\u2022'
+                      : _peso(account.balance),
+                  style: theme.textTheme.titleMedium,
+                ),
                 const SizedBox(width: 4),
                 Icon(Icons.chevron_right_rounded,
-                    color: Theme.of(context).textTheme.bodyMedium?.color),
+                    color: theme.textTheme.bodyMedium?.color),
               ],
             ),
           ),
@@ -638,6 +827,17 @@ class _MoneyScreenState extends State<MoneyScreen> {
         'bank' => Icons.account_balance_rounded,
         'paypal' => Icons.account_balance_wallet_rounded,
         _ => Icons.wallet_rounded,
+      };
+
+  // Colored chip per wallet type.
+  Color _accountTint(BuildContext context, String type) =>
+      switch (type.toLowerCase()) {
+        'cash' => LifeTrackColors.mint,
+        'gcash' => LifeTrackColors.skyInfo,
+        'bank' => context.season.accentText,
+        'paypal' => LifeTrackColors.skyInfo,
+        _ => Theme.of(context).textTheme.bodyMedium?.color ??
+            LifeTrackColors.textMutedOnLight,
       };
 
   String _peso(double value) => CurrencyController.format(value);
@@ -738,7 +938,7 @@ class _MoneyAddOptionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final s = context.season;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -753,10 +953,10 @@ class _MoneyAddOptionTile extends StatelessWidget {
                 height: 44,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: primary.withValues(alpha: 0.08),
+                  color: s.accent.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, size: 22, color: primary),
+                child: Icon(icon, size: 22, color: s.accentText),
               ),
               const SizedBox(width: 14),
               Expanded(

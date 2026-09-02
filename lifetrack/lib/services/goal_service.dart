@@ -38,7 +38,8 @@ class GoalService {
 
   Future<List<Goal>> getGoalsSortedByPriority() async {
     final active = await getActiveGoals();
-    active.sort((a, b) => _priorityWeight(b.priority).compareTo(_priorityWeight(a.priority)));
+    active.sort((a, b) =>
+        _priorityWeight(b.priority).compareTo(_priorityWeight(a.priority)));
     return active;
   }
 
@@ -101,6 +102,10 @@ class GoalService {
 
   Future<int> addSkill(Skill skill) => _skillRepo.create(skill);
 
+  /// Deletes one skill by id. The repository's `delete(int id)` does the
+  /// actual SQL DELETE.
+  Future<void> deleteSkill(int id) => _skillRepo.delete(id);
+
   Future<void> updateSkillProgress(Skill skill, double newProgress) async {
     await _skillRepo.update(skill.copyWith(progress: newProgress));
   }
@@ -108,19 +113,13 @@ class GoalService {
   /// Logs a practice session (Phase 6 §14: "Java practiced 8 sessions").
   /// Call this whenever the user completes a skill-related activity,
   /// e.g. finishing a Focus Timer block tagged with a skill.
-  Future<void> logSkillSession(SkillSession session) => _skillSessionRepo.create(session);
+  Future<void> logSkillSession(SkillSession session) =>
+      _skillSessionRepo.create(session);
 
   Future<List<SkillSession>> getSkillSessions(int skillId) =>
       _skillSessionRepo.getBySkill(skillId);
 
   /// Creates a new skill from just a name, starting at 0% progress.
-  /// Convenience wrapper around [addSkill] for screens (e.g. the Skills
-  /// screen "add skill" sheet) that only collect a name up front.
-  ///
-  /// NOTE: this was previously an empty stub (`async {}`) that never
-  /// touched the repository at all — that's why newly "created" skills
-  /// never showed up. Fixed by actually building a Skill and delegating
-  /// to addSkill/_skillRepo.create.
   Future<int> createSkill(String name) {
     final skill = Skill(
       name: name,

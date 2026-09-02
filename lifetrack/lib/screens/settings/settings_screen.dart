@@ -69,7 +69,6 @@ import '../../widgets/lifetrack_dialog.dart';
 import '../../core/security/security_service.dart';
 import '../../core/database/database_helper.dart';
 import '../../core/constants/app_constants.dart';
-import '../../app/theme_mode_controller.dart';
 import '../../app/currency_controller.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -529,6 +528,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _pickSeason() async {
+    final selected = await showDialog<SeasonMode>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Season'),
+        children: SeasonMode.values.map((m) {
+          return ListTile(
+            title: Text(m.label),
+            subtitle: Text(m.subtitle),
+            trailing: m == SeasonController.mode.value
+                ? const Icon(Icons.check_rounded)
+                : null,
+            onTap: () => Navigator.pop(dialogContext, m),
+          );
+        }).toList(),
+      ),
+    );
+    if (selected == null) return;
+    await SeasonController.setMode(selected);
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     _automaticBackupTimer?.cancel();
@@ -566,6 +587,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   v ? ThemeMode.dark : ThemeMode.light;
               setState(() {});
             }),
+            _navRow(context, Icons.wb_sunny_rounded, 'Season',
+                SeasonController.mode.value.label, _pickSeason),
             _navRow(context, Icons.currency_exchange_rounded, 'Currency',
                 _currencyCode, _pickCurrency),
           ]),
@@ -694,7 +717,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
               value: value,
               onChanged: onChanged,
-              activeThumbColor: LifeTrackColors.highlight),
+             activeThumbColor: Theme.of(context).colorScheme.primary,
+          ),
         ],
       ),
     );

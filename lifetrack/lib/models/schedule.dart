@@ -34,6 +34,7 @@ class Schedule {
   final RepeatType repeatType;
   final TaskPriority priority;
   final String? notes;
+  final bool isDone; // ← NEW
 
   const Schedule({
     this.id,
@@ -45,6 +46,7 @@ class Schedule {
     this.repeatType = RepeatType.none,
     this.priority = TaskPriority.medium,
     this.notes,
+    this.isDone = false, // ← NEW — defaults to false
   });
 
   Map<String, dynamic> toMap() {
@@ -58,6 +60,8 @@ class Schedule {
       ScheduleTable.colRepeatType: repeatType.value,
       ScheduleTable.colPriority: priority.value,
       ScheduleTable.colNotes: notes,
+      // SQLite has no bool — store 0 / 1.
+      ScheduleTable.colIsDone: isDone ? 1 : 0, // ← NEW
     };
   }
 
@@ -69,11 +73,15 @@ class Schedule {
       startTime: map[ScheduleTable.colStartTime] as String,
       endTime: map[ScheduleTable.colEndTime] as String,
       date: map[ScheduleTable.colDate] as String,
-      repeatType: RepeatTypeX.fromValue(map[ScheduleTable.colRepeatType] as String),
+      repeatType:
+          RepeatTypeX.fromValue(map[ScheduleTable.colRepeatType] as String),
       priority: TaskPriorityX.fromValue(
         (map[ScheduleTable.colPriority] as String?) ?? 'Medium',
       ),
       notes: map[ScheduleTable.colNotes] as String?,
+      // Read back: 1 → true, anything else → false.
+      isDone:
+          (map[ScheduleTable.colIsDone] as int? ?? 0) == 1, // ← NEW
     );
   }
 
@@ -87,6 +95,7 @@ class Schedule {
     RepeatType? repeatType,
     TaskPriority? priority,
     String? notes,
+    bool? isDone, // ← NEW
   }) {
     return Schedule(
       id: id ?? this.id,
@@ -98,6 +107,8 @@ class Schedule {
       repeatType: repeatType ?? this.repeatType,
       priority: priority ?? this.priority,
       notes: notes ?? this.notes,
+      isDone: isDone ?? this.isDone, // ← NEW
     );
   }
 }
+

@@ -8,9 +8,6 @@
 //   Future<List<Map<String, dynamic>>> getMonthlyTotals(int monthsBack)
 //     -> one entry per month, most recent last, each shaped as:
 //        { 'month': DateTime, 'income': double, 'expenses': double, 'saved': double }
-//
-// If your service methods return different shapes, adjust `_load()`/`_loadWeek()`
-// and the two trend widgets (`_WeeklyTrendCard`, `_MonthlyTrendCard`) accordingly.
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -29,12 +26,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   final _service = AnalyticsService();
   late Future<Map<String, dynamic>> _future;
   late Future<List<Map<String, dynamic>>> _dailyFuture;
-  late DateTime _weekStart; // Monday of the currently viewed week
+  late DateTime _weekStart;
 
   static DateTime _mondayOf(DateTime d) {
     final date = DateTime(d.year, d.month, d.day);
-    return date
-        .subtract(Duration(days: date.weekday - 1)); // weekday: Mon=1..Sun=7
+    return date.subtract(Duration(days: date.weekday - 1));
   }
 
   @override
@@ -77,7 +73,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   void _goToNextWeek() {
-    if (_isCurrentWeek) return; // don't navigate into the future
+    if (_isCurrentWeek) return;
     setState(() {
       _weekStart = _weekStart.add(const Duration(days: 7));
       _dailyFuture = _loadWeek(_weekStart);
@@ -86,144 +82,139 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   String _peso(double value) => CurrencyController.format(value);
 
-  void _openSpendingDetail(BuildContext context, String category, double amount,
-      double total, int rank, int totalCategories, Color color) {
+  void _openSpendingDetail(
+    BuildContext context,
+    String category,
+    double amount,
+    double total,
+    int rank,
+    int totalCategories,
+    Color color,
+  ) {
+    final s = context.season;
     final daysElapsed = DateTime.now().day.clamp(1, 31);
     final perDay = amount / daysElapsed;
     final share = total == 0 ? 0.0 : amount / total;
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-        decoration: BoxDecoration(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurfaceVariant
-                      .withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color.withValues(alpha: 0.12),
-                  ),
-                  child:
-                      Icon(_iconForCategory(category), color: color, size: 22),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(category,
-                          style: Theme.of(context).textTheme.titleMedium),
-                      Text('Rank #$rank of $totalCategories categories',
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Text(_peso(amount),
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineMedium
-                    ?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text('total spent this month',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('SHARE OF TOTAL SPENDING',
-                    style: Theme.of(context).textTheme.labelSmall),
-                Text('${(share * 100).toStringAsFixed(0)}%',
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelSmall
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: share,
-                minHeight: 6,
-                backgroundColor: Theme.of(context)
-                    .colorScheme
-                    .onSurfaceVariant
-                    .withValues(alpha: 0.1),
-                valueColor: AlwaysStoppedAnimation(color),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurfaceVariant
-                    .withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.calendar_view_day_rounded,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  const SizedBox(width: 8),
-                  Text('~${_peso(perDay)} / day so far this month',
-                      style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ),
-            ),
-            if (rank == 1) ...[
-              const SizedBox(height: 12),
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Row(
                 children: [
-                  Icon(Icons.trending_up_rounded, size: 16, color: color),
-                  const SizedBox(width: 8),
+                  Container(
+                    width: 46,
+                    height: 46,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(_iconForCategory(category),
+                        color: color, size: 22),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: Text('Your biggest expense category this month',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: color)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(category,
+                            style: Theme.of(sheetContext)
+                                .textTheme
+                                .titleLarge),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Rank #$rank of $totalCategories',
+                          style: Theme.of(sheetContext)
+                              .textTheme
+                              .bodyMedium,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
+              const SizedBox(height: 20),
+              Text(
+                _peso(amount),
+                style: Theme.of(sheetContext)
+                    .textTheme
+                    .displayLarge
+                    ?.copyWith(fontSize: 28, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'total spent this month',
+                style: Theme.of(sheetContext).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('SHARE OF TOTAL SPENDING',
+                      style: Theme.of(sheetContext).textTheme.labelSmall),
+                  Text('${(share * 100).toStringAsFixed(0)}%',
+                      style: Theme.of(sheetContext)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: share,
+                  minHeight: 6,
+                  backgroundColor: s.accent.withValues(alpha: 0.14),
+                  valueColor: AlwaysStoppedAnimation<Color>(s.accent),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: s.accent.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_view_day_rounded,
+                        size: 16, color: s.accentText),
+                    const SizedBox(width: 8),
+                    Text('~${_peso(perDay)} / day so far this month',
+                        style: Theme.of(sheetContext).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+              if (rank == 1) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(Icons.trending_up_rounded,
+                        size: 16, color: s.accentText),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Your biggest expense category this month',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: s.accentText),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -242,12 +233,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     if (key.contains('bill') || key.contains('utility')) {
       return Icons.receipt_long_rounded;
     }
-    if (key.contains('shop') ||
-    key.contains('grocery')) {
+    if (key.contains('shop') || key.contains('grocery')) {
       return Icons.shopping_bag_rounded;
     }
-    if (key.contains('health') || key.contains('medic') ||
-    key.contains('hospital')) {
+    if (key.contains('health') ||
+        key.contains('medic') ||
+        key.contains('hospital')) {
       return Icons.local_hospital_rounded;
     }
     if (key.contains('entertain') || key.contains('fun')) {
@@ -263,7 +254,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => SafeArea(
+  Widget build(BuildContext context) {
+    final s = context.season;
+    final theme = Theme.of(context);
+
+    // Own Scaffold so the background follows ThemeData.scaffoldBackgroundColor
+    // (paper in light, ink in dark) instead of inheriting whatever is behind
+    // this route. Without this, Analytics rendered on the previous screen's
+    // background — which is why it looked black while dark mode was off.
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: SafeArea(
         child: FutureBuilder<Map<String, dynamic>>(
           future: _future,
           builder: (context, snapshot) {
@@ -275,21 +276,42 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.error_outline_rounded,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurfaceVariant
-                            .withValues(alpha: 0.5),
-                        size: 32),
-                    const SizedBox(height: 8),
-                    const Text('Unable to load analytics records.'),
+                    Container(
+                      width: 56,
+                      height: 56,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: theme.textTheme.bodyMedium?.color
+                            ?.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(
+                        Icons.cloud_off_rounded,
+                        size: 27,
+                        color: theme.textTheme.bodyMedium?.color,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text('Unable to load analytics',
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 5),
+                    Text('Check your connection and try again.',
+                        style: theme.textTheme.bodyMedium),
+                    const SizedBox(height: 18),
+                    FilledButton.icon(
+                      onPressed: _retry,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Retry'),
+                    ),
                   ],
                 ),
               );
             }
 
             final month = snapshot.data!['month'] as Map<String, double>;
-            final spending = snapshot.data!['spending'] as Map<String, double>;
+            final spending =
+                snapshot.data!['spending'] as Map<String, double>;
             final monthly =
                 snapshot.data!['monthly'] as List<Map<String, dynamic>>? ??
                     const <Map<String, dynamic>>[];
@@ -297,20 +319,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             final income = month['income'] ?? 0;
             final expenses = month['expenses'] ?? 0;
             final saved = month['saved'] ?? 0;
-            final spentTotal = spending.values.fold<double>(0, (a, b) => a + b);
+            final spentTotal =
+                spending.values.fold<double>(0, (a, b) => a + b);
             final sortedSpending = spending.entries.toList()
               ..sort((a, b) => b.value.compareTo(a.value));
 
-            final palette = [
-              LifeTrackColors.highlight,
-              LifeTrackColors.mint,
+            final palette = <Color>[
+              s.accent,
               LifeTrackColors.coral,
+              LifeTrackColors.mint,
             ];
 
             return ListView(
               padding: const EdgeInsets.all(LifeTrackMetrics.screenPadding),
               physics: const BouncingScrollPhysics(),
               children: [
+                // Header
                 Row(
                   children: [
                     GestureDetector(
@@ -318,39 +342,46 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurfaceVariant
-                              .withValues(alpha: 0.08),
+                          color: s.accent.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(Icons.arrow_back_rounded, size: 20),
+                        child: Icon(Icons.arrow_back_rounded,
+                            size: 20, color: s.accentText),
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Text('Analytics',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    const Spacer(),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Analytics',
+                              style: theme.textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 2),
+                          Text('See where your money went.',
+                              style: theme.textTheme.bodySmall),
+                        ],
+                      ),
+                    ),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurfaceVariant
-                            .withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(20),
+                        color: s.accent.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(999),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.calendar_today_rounded, size: 12),
+                          Icon(Icons.calendar_today_rounded,
+                              size: 12, color: s.accentText),
                           const SizedBox(width: 6),
                           Text(
-                            DateFormat('MMMM yyyy')
+                            DateFormat('MMM yyyy')
                                 .format(DateTime.now())
                                 .toUpperCase(),
-                            style: Theme.of(context).textTheme.labelSmall,
+                            style: theme.textTheme.labelSmall
+                                ?.copyWith(color: s.accentText),
                           ),
                         ],
                       ),
@@ -360,25 +391,61 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const SizedBox(height: 20),
 
                 // Hero savings card
-                LifeTrackCard(
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [s.accent, s.accentDeep],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: s.accent.withValues(alpha: 0.28),
+                        blurRadius: 15,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('NET SAVED THIS MONTH',
-                          style: Theme.of(context).textTheme.labelSmall),
-                      const SizedBox(height: 6),
+                      Text(
+                        'Net saved this month',
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: s.onAccent.withValues(alpha: 0.85),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          const Icon(Icons.savings_rounded,
-                              color: LifeTrackColors.highlight, size: 22),
-                          const SizedBox(width: 8),
-                          Text(
-                            _peso(saved),
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineMedium
-                                ?.copyWith(fontWeight: FontWeight.bold),
+                          Container(
+                            width: 36,
+                            height: 36,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: s.onAccent.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(Icons.savings_rounded,
+                                color: s.onAccent, size: 20),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                _peso(saved),
+                                style: theme.textTheme.displayLarge?.copyWith(
+                                  color: s.onAccent,
+                                  fontSize: 32,
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -393,43 +460,42 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 flex: (income <= 0 ? 1 : income).round(),
                                 child: Container(
                                     color: LifeTrackColors.mint
-                                        .withValues(alpha: 0.85)),
+                                        .withValues(alpha: 0.9)),
                               ),
                               Expanded(
                                 flex: (expenses <= 0 ? 1 : expenses).round(),
                                 child: Container(
                                     color: LifeTrackColors.coral
-                                        .withValues(alpha: 0.85)),
+                                        .withValues(alpha: 0.9)),
                               ),
                             ],
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 14),
                       Row(
                         children: [
                           Expanded(
-                            child: _StatBlock(
+                            child: _HeroStat(
                               icon: Icons.arrow_downward_rounded,
                               label: 'Income',
                               value: _peso(income),
                               color: LifeTrackColors.mint,
+                              textColor: s.onAccent,
                             ),
                           ),
                           Container(
                             width: 1,
                             height: 32,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant
-                                .withValues(alpha: 0.15),
+                            color: s.onAccent.withValues(alpha: 0.18),
                           ),
                           Expanded(
-                            child: _StatBlock(
+                            child: _HeroStat(
                               icon: Icons.arrow_upward_rounded,
                               label: 'Expenses',
                               value: _peso(expenses),
                               color: LifeTrackColors.coral,
+                              textColor: s.onAccent,
                             ),
                           ),
                         ],
@@ -439,12 +505,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Weekly trend — own FutureBuilder, navigated week by week
+                // Weekly trend
                 FutureBuilder<List<Map<String, dynamic>>>(
                   future: _dailyFuture,
                   builder: (context, dailySnapshot) {
-                    final daily =
-                        dailySnapshot.data ?? const <Map<String, dynamic>>[];
+                    final daily = dailySnapshot.data ??
+                        const <Map<String, dynamic>>[];
                     return _WeeklyTrendCard(
                       daily: daily,
                       peso: _peso,
@@ -460,7 +526,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Monthly trend (last 6 months)
+                // Monthly trend
                 _MonthlyTrendCard(
                     monthly: monthly, peso: _peso, onRetry: _retry),
                 const SizedBox(height: 16),
@@ -474,12 +540,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text('SPENDING',
-                              style: Theme.of(context).textTheme.labelSmall),
+                              style: theme.textTheme.labelSmall),
                           if (spending.isNotEmpty)
                             Text(_peso(spentTotal),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
+                                style: theme.textTheme.labelSmall
                                     ?.copyWith(fontWeight: FontWeight.bold)),
                         ],
                       ),
@@ -492,21 +556,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                               children: [
                                 Icon(Icons.receipt_long_rounded,
                                     size: 32,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant
-                                        .withValues(alpha: 0.5)),
+                                    color: theme.textTheme.bodyMedium?.color),
                                 const SizedBox(height: 8),
                                 Text(
                                   'No expenses recorded this month.',
                                   textAlign: TextAlign.center,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant),
+                                  style: theme.textTheme.bodySmall,
                                 ),
                               ],
                             ),
@@ -516,8 +571,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         ...List.generate(sortedSpending.length, (i) {
                           final entry = sortedSpending[i];
                           final color = palette[i % palette.length];
-                          final ratio =
-                              spentTotal == 0 ? 0.0 : entry.value / spentTotal;
+                          final ratio = spentTotal == 0
+                              ? 0.0
+                              : entry.value / spentTotal;
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 14),
                             child: InkWell(
@@ -547,23 +603,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: Text(entry.key,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleMedium),
+                                            style: theme
+                                                .textTheme.titleMedium),
                                       ),
                                       Text(_peso(entry.value),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleMedium
+                                          style: theme.textTheme.titleMedium
                                               ?.copyWith(
-                                                  fontWeight: FontWeight.w600)),
+                                                  fontWeight:
+                                                      FontWeight.w600)),
                                       const SizedBox(width: 4),
                                       Icon(Icons.chevron_right_rounded,
                                           size: 18,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant
-                                              .withValues(alpha: 0.6)),
+                                          color: theme.textTheme.bodyMedium
+                                              ?.color
+                                              ?.withValues(alpha: 0.5)),
                                     ],
                                   ),
                                   const SizedBox(height: 6),
@@ -572,11 +625,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                     child: LinearProgressIndicator(
                                       value: ratio,
                                       minHeight: 5,
-                                      backgroundColor: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant
-                                          .withValues(alpha: 0.1),
-                                      valueColor: AlwaysStoppedAnimation(color),
+                                      backgroundColor:
+                                          s.accent.withValues(alpha: 0.12),
+                                      valueColor:
+                                          AlwaysStoppedAnimation(color),
                                     ),
                                   ),
                                 ],
@@ -591,51 +643,61 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             );
           },
         ),
-      );
+      ),
+    );
+  }
 }
 
-class _StatBlock extends StatelessWidget {
-  const _StatBlock({
+class _HeroStat extends StatelessWidget {
+  const _HeroStat({
     required this.icon,
     required this.label,
     required this.value,
     required this.color,
+    required this.textColor,
   });
   final IconData icon;
   final String label;
   final String value;
   final Color color;
+  final Color textColor;
 
   @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.12),
-            ),
-            child: Icon(icon, size: 14, color: color),
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color.withValues(alpha: 0.22),
           ),
-          const SizedBox(width: 8),
-          Column(
+          child: Icon(icon, size: 14, color: color),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: Theme.of(context).textTheme.labelSmall),
+              Text(label,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: textColor.withValues(alpha: 0.75),
+                      )),
               Text(value,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w600)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      )),
             ],
           ),
-        ],
-      );
+        ),
+      ],
+    );
+  }
 }
 
-/// Bar chart for a single Mon–Sun week, income (mint) vs expenses (coral)
-/// side by side. Navigate between weeks with the prev/next arrows in the
-/// header — mirrors how the spending card lets you browse other months.
 class _WeeklyTrendCard extends StatelessWidget {
   const _WeeklyTrendCard({
     required this.daily,
@@ -669,6 +731,9 @@ class _WeeklyTrendCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = context.season;
+
     final maxValue = daily.fold<double>(1, (max, d) {
       final income = (d['income'] as num?)?.toDouble() ?? 0;
       final expenses = (d['expenses'] as num?)?.toDouble() ?? 0;
@@ -688,12 +753,10 @@ class _WeeklyTrendCard extends StatelessWidget {
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurfaceVariant
-                        .withValues(alpha: 0.08),
+                    color: s.accent.withValues(alpha: 0.10),
                   ),
-                  child: const Icon(Icons.chevron_left_rounded, size: 18),
+                  child: Icon(Icons.chevron_left_rounded,
+                      size: 18, color: s.accentText),
                 ),
               ),
               const SizedBox(width: 8),
@@ -701,7 +764,8 @@ class _WeeklyTrendCard extends StatelessWidget {
                 child: Text(
                   _weekLabel(),
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.labelSmall,
+                  style: theme.textTheme.labelSmall
+                      ?.copyWith(color: s.accentText),
                 ),
               ),
               const SizedBox(width: 8),
@@ -711,20 +775,18 @@ class _WeeklyTrendCard extends StatelessWidget {
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurfaceVariant
-                        .withValues(alpha: isCurrentWeek ? 0.04 : 0.08),
+                    color: isCurrentWeek
+                        ? theme.textTheme.bodyMedium?.color
+                            ?.withValues(alpha: 0.06)
+                        : s.accent.withValues(alpha: 0.10),
                   ),
                   child: Icon(
                     Icons.chevron_right_rounded,
                     size: 18,
                     color: isCurrentWeek
-                        ? Theme.of(context)
-                            .colorScheme
-                            .onSurfaceVariant
-                            .withValues(alpha: 0.3)
-                        : null,
+                        ? theme.textTheme.bodyMedium?.color
+                            ?.withValues(alpha: 0.3)
+                        : s.accentText,
                   ),
                 ),
               ),
@@ -752,18 +814,14 @@ class _WeeklyTrendCard extends StatelessWidget {
                 child: Column(
                   children: [
                     Text('No data for this week.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant)),
+                        style: theme.textTheme.bodySmall),
                     const SizedBox(height: 10),
                     TextButton.icon(
                       onPressed: onRetry,
                       icon: const Icon(Icons.refresh_rounded, size: 16),
                       label: const Text('Retry'),
                       style: TextButton.styleFrom(
-                        foregroundColor: LifeTrackColors.highlight,
-                      ),
+                          foregroundColor: s.accentText),
                     ),
                   ],
                 ),
@@ -810,8 +868,11 @@ class _DayColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = context.season;
     final isToday = DateUtils.isSameDay(date, DateTime.now());
-    final incomeHeight = maxValue == 0 ? 0.0 : (income / maxValue) * maxHeight;
+    final incomeHeight =
+        maxValue == 0 ? 0.0 : (income / maxValue) * maxHeight;
     final expenseHeight =
         maxValue == 0 ? 0.0 : (expenses / maxValue) * maxHeight;
 
@@ -845,21 +906,22 @@ class _DayColumn extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           DateFormat('E').format(date).substring(0, 1),
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: isToday
-                  ? LifeTrackColors.highlight
-                  : Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: isToday ? FontWeight.bold : FontWeight.normal),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: isToday ? s.accentText : theme.textTheme.bodyMedium?.color,
+            fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+          ),
         ),
       ],
     );
   }
 }
 
-/// Bar chart of net savings across the last 6 months.
 class _MonthlyTrendCard extends StatelessWidget {
-  const _MonthlyTrendCard(
-      {required this.monthly, required this.peso, required this.onRetry});
+  const _MonthlyTrendCard({
+    required this.monthly,
+    required this.peso,
+    required this.onRetry,
+  });
   final List<Map<String, dynamic>> monthly;
   final String Function(double) peso;
   final VoidCallback onRetry;
@@ -868,6 +930,9 @@ class _MonthlyTrendCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = context.season;
+
     final values = monthly
         .map((m) => ((m['saved'] as num?)?.toDouble() ?? 0).abs())
         .toList();
@@ -882,7 +947,7 @@ class _MonthlyTrendCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('MONTHLY TREND', style: Theme.of(context).textTheme.labelSmall),
+          Text('MONTHLY TREND', style: theme.textTheme.labelSmall),
           const SizedBox(height: 16),
           if (monthly.isEmpty)
             Padding(
@@ -891,18 +956,14 @@ class _MonthlyTrendCard extends StatelessWidget {
                 child: Column(
                   children: [
                     Text('Not enough data yet.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant)),
+                        style: theme.textTheme.bodySmall),
                     const SizedBox(height: 10),
                     TextButton.icon(
                       onPressed: onRetry,
                       icon: const Icon(Icons.refresh_rounded, size: 16),
                       label: const Text('Retry'),
                       style: TextButton.styleFrom(
-                        foregroundColor: LifeTrackColors.highlight,
-                      ),
+                          foregroundColor: s.accentText),
                     ),
                   ],
                 ),
@@ -949,10 +1010,14 @@ class _MonthColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isCurrent = month.year == DateTime.now().year &&
-        month.month == DateTime.now().month;
+    final theme = Theme.of(context);
+    final s = context.season;
+    final isCurrent =
+        month.year == DateTime.now().year && month.month == DateTime.now().month;
     final barHeight = (saved.abs() / maxValue) * maxHeight;
-    final color = saved >= 0 ? LifeTrackColors.mint : LifeTrackColors.coral;
+    final color = isCurrent
+        ? s.accent
+        : (saved >= 0 ? LifeTrackColors.mint : LifeTrackColors.coral);
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
@@ -961,10 +1026,11 @@ class _MonthColumn extends StatelessWidget {
           saved.abs() >= 1000
               ? '${(saved.abs() / 1000).toStringAsFixed(1)}k'
               : saved.abs().toStringAsFixed(0),
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontSize: 9,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal),
+          style: theme.textTheme.labelSmall?.copyWith(
+            fontSize: 9,
+            color: theme.textTheme.bodyMedium?.color,
+            fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+          ),
         ),
         const SizedBox(height: 4),
         Container(
@@ -978,11 +1044,10 @@ class _MonthColumn extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           DateFormat('MMM').format(month),
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: isCurrent
-                  ? LifeTrackColors.highlight
-                  : Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: isCurrent ? s.accentText : theme.textTheme.bodyMedium?.color,
+            fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+          ),
         ),
       ],
     );
@@ -995,18 +1060,21 @@ class _LegendDot extends StatelessWidget {
   final String label;
 
   @override
-  Widget build(BuildContext context) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 4),
-          Text(label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
-        ],
-      );
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 4),
+        Text(label,
+            style: theme.textTheme.labelSmall
+                ?.copyWith(color: theme.textTheme.bodyMedium?.color)),
+      ],
+    );
+  }
 }

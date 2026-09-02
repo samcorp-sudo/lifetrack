@@ -1,123 +1,144 @@
 // ============================================================================
 // Schedule Screen
-// ----------------------------------------------------------------------------
-// DESIGN PASS:
-// - FAB is now an extended FAB ("Add") instead of a bare "+" icon —
-//   clearer affordance now that it opens a menu with 3 choices.
-// - Tapping the FAB opens a bottom sheet with three options: Add manually,
-//   Scan handwritten schedule (camera), Upload schedule file. Each uses
-//   the same _AddOptionTile for a consistent icon-chip + title/subtitle
-//   look, matching the header's icon-chip style.
-// - Softer shadows/spacing pass on the calendar and day-detail cards.
+// ============================================================================
 //
-// NEW: SCAN / UPLOAD FLOW
-// - "Scan handwritten schedule" and "Upload schedule file" both lead to
-//   the same _ScheduleScanReviewSheet: a loading state ("Scanning your
-//   schedule...") followed by a checklist of detected activities the user
-//   can review, edit, deselect, and then import in one batch.
-// - Right now the "scan" step is MOCKED — it returns fixed sample data
-//   after a short delay so the full flow is clickable and demoable. It is
-//   NOT reading any real photo or file yet. See the TODO block below for
-//   exactly what to wire up.
+// FIXES IN THIS VERSION (LateInitializationError on _monthFade):
+//   1. `_monthFade` is declared nullable (`AnimationController?`) so a
+//      dispose-before-init can't crash with LateInitializationError.
+//   2. Every use of `_monthFade` goes through `?.` (safe call).
+//   3. The two AnimatedBuilders fall back to kAlwaysCompleteAnimation and
+//      opacity 1.0 when _monthFade is null.
+//   4. `_reloadDay({fromInit})` avoids setState() inside initState, which
+//      was the deeper cause: setState in initState can trigger a framework
+//      error, which tears the state down mid-initState, which then leaves
+//      `late final _monthFade` uninitialized and crashes on dispose.
 //
-// TODO(packages): add these to pubspec.yaml when ready to wire real capture:
-//   - image_picker        -> camera capture for "Scan handwritten schedule"
-//   - file_picker          -> file selection for "Upload schedule file"
-//   - a text-recognition/OCR package (e.g. google_mlkit_text_recognition)
-//     OR a cloud OCR API call, to turn the captured image into raw text
-//
-// TODO(backend): replace `_ScheduleScanService.mockScan()` below with a
-// real implementation that:
-//   1. Takes the captured/uploaded image (or PDF) file
-//   2. Runs OCR to extract raw text
-//   3. Parses that raw text into structured activities (title, category
-//      guess, start_time, end_time, date) — this parsing step is the
-//      hard part and will likely need its own service/heuristics, or an
-//      LLM call if you want smarter parsing than plain regex.
-//   4. Returns a List<_ScannedActivity> the review sheet can display
-//
-// TODO(service): once real Schedule items are created from the reviewed
-// scan results, confirm the actual persistence call on ScheduleService
-// (e.g. `_service.addScheduleItem(schedule)` per item, or a batch method
-// if one exists) — see `_importSelected()` below.
-//
-// EXISTING TODOs (unchanged from prior version):
-// - `Schedule.id` / `isDone` field name assumptions — see `// TODO(model)`
-// - `ScheduleService` completion-persistence stub — see `// TODO(service)`
-// - Month-indicator batch fetch — see `_loadMonthIndicators()`
+// All of the design/color/animation notes from the previous version still
+// apply (season chrome, calendar stays amber, entrance stagger, etc.).
 // ============================================================================
 
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:image_picker/image_picker.dart';
+
 import '../../core/utilities/date_formatter.dart';
 import '../../models/schedule.dart';
 import '../../services/schedule_service.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/lifetrack_card.dart';
-import '../../widgets/schedule_card.dart';
 import 'add_activity_sheet.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
+
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
 }
 
-class _ScheduleScreenState extends State<ScheduleScreen> {
-  // ---------------------------------------------------------------------
-  // Layout spacing scale — matches the rest of the app.
-  // ---------------------------------------------------------------------
+class _ScheduleScreenState extends State<ScheduleScreen>
+    with TickerProviderStateMixin {
+  // Layout
   static const double _headerBottomGap = 16;
   static const double _calendarBottomGap = 20;
-  static const double _itemGap = 12;
-  static const double _bottomInset = 80;
+  static const double _itemGap = 10;
+  static const double _bottomInset = 100;
   static const double _headerHeight = 48;
   static const double _iconChipSize = 36;
   static const double _dayCellGap = 4;
 
   final _service = ScheduleService();
 
-  DateTime _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  DateTime _visibleMonth =
+      DateTime(DateTime.now().year, DateTime.now().month);
   DateTime _selectedDate = DateTime.now();
 
-  late Future<List<Schedule>> _dayFuture;
+  List<Schedule>? _dayItems;
+  bool _dayError = false;
 
-  // Cache of "does this date have any items" for the visible month, used to
-  // render the dot indicators. Keyed by yyyy-MM-dd via DateFormatter.
   final Map<String, bool> _monthIndicators = {};
   bool _loadingIndicators = false;
+
+  final Map<int, AnimationController> _rowAnims = {};
+
+  // Nullable so a dispose-before-init can't throw LateInitializationError.
+  AnimationController? _monthFade;
 
   @override
   void initState() {
     super.initState();
-    _reloadDay();
+    _monthFade = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+      value: 1,
+    );
+    // Pass fromInit so _reloadDay skips setState() (the widget hasn't
+    // built yet, so setState here is what was tearing the state down).
+    _reloadDay(fromInit: true);
     _loadMonthIndicators();
   }
 
-  void _reloadDay() {
-    _dayFuture =
-        _service.getScheduleForDate(DateFormatter.toDbDate(_selectedDate));
+  @override
+  void dispose() {
+    for (final c in _rowAnims.values) {
+      c.dispose();
+    }
+    _rowAnims.clear();
+    _monthFade?.dispose();
+    super.dispose();
   }
 
-  // TODO(backend): Replace this per-day fan-out with a single
-  // `getScheduleForMonth(year, month)` call if/when that exists on
-  // ScheduleService — this is O(days in month) requests as written.
-  Future<void> _loadMonthIndicators() async {
-    setState(() => _loadingIndicators = true);
-    final daysInMonth =
-        DateTime(_visibleMonth.year, _visibleMonth.month + 1, 0).day;
-    final results = <String, bool>{};
-    for (var day = 1; day <= daysInMonth; day++) {
-      final date = DateTime(_visibleMonth.year, _visibleMonth.month, day);
-      try {
-        final items =
-            await _service.getScheduleForDate(DateFormatter.toDbDate(date));
-        results[DateFormatter.toDbDate(date)] = items.isNotEmpty;
-      } catch (_) {
-        // Ignore indicator failures — the grid just won't show a dot.
-      }
+  // ---------------------------------------------------------------------------
+  // Data
+  // ---------------------------------------------------------------------------
+
+  Future<void> _reloadDay({bool fromInit = false}) async {
+    for (final c in _rowAnims.values) {
+      c.dispose();
     }
+    _rowAnims.clear();
+
+    if (fromInit) {
+      // No setState — initState is about to build anyway.
+      _dayItems = null;
+      _dayError = false;
+    } else {
+      setState(() {
+        _dayItems = null;
+        _dayError = false;
+      });
+    }
+
+    try {
+      final items = await _service.getScheduleForDate(
+        DateFormatter.toDbDate(_selectedDate),
+      );
+      if (!mounted) return;
+      setState(() {
+        _dayItems = items;
+        _dayError = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dayItems = const [];
+        _dayError = true;
+      });
+    }
+  }
+
+  Future<void> _loadMonthIndicators() async {
+    if (mounted) setState(() => _loadingIndicators = true);
+
+    final results = <String, bool>{};
+    try {
+      final items = await _service.getScheduleForMonth(
+        _visibleMonth.year,
+        _visibleMonth.month,
+      );
+      for (final item in items) {
+        results[item.date] = true;
+      }
+    } catch (_) {}
+
     if (!mounted) return;
     setState(() {
       _monthIndicators
@@ -127,19 +148,26 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     });
   }
 
-  void _moveMonth(int months) {
+  // ---------------------------------------------------------------------------
+  // Calendar navigation
+  // ---------------------------------------------------------------------------
+
+  Future<void> _moveMonth(int months) async {
+    await _monthFade?.reverse();
+    if (!mounted) return;
     setState(() {
-      _visibleMonth =
-          DateTime(_visibleMonth.year, _visibleMonth.month + months);
+      _visibleMonth = DateTime(
+        _visibleMonth.year,
+        _visibleMonth.month + months,
+      );
     });
+    _monthFade?.forward();
     _loadMonthIndicators();
   }
 
   void _selectDate(DateTime date) {
-    setState(() {
-      _selectedDate = date;
-      _reloadDay();
-    });
+    setState(() => _selectedDate = date);
+    _reloadDay();
   }
 
   void _jumpToToday() {
@@ -147,8 +175,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     setState(() {
       _visibleMonth = DateTime(now.year, now.month);
       _selectedDate = now;
-      _reloadDay();
     });
+    _monthFade?.forward(from: 0);
+    _reloadDay();
     _loadMonthIndicators();
   }
 
@@ -157,66 +186,47 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   bool get _isToday => _isSameDay(_selectedDate, DateTime.now());
 
-  // TODO(model): assumes `Schedule.id` exists as a unique identifier.
-  // TODO(service): assumes/stubs a persistence call for completion state.
+  // ---------------------------------------------------------------------------
+  // Completion
+  // ---------------------------------------------------------------------------
+
   Future<void> _toggleDone(Schedule activity, bool isDone) async {
-    // Optimistic local update so the UI responds instantly.
     setState(() {
-      _dayFuture = _dayFuture.then((items) {
-        return [
-          for (final item in items)
-            if (item.id == activity.id) // TODO(model): confirm `id` field
-              _copyWithDone(item, isDone)
-            else
-              item,
-        ];
-      });
+      final items = _dayItems;
+      if (items == null) return;
+      _dayItems = [
+        for (final item in items)
+          if (item.id == activity.id)
+            item.copyWith(isDone: isDone)
+          else
+            item,
+      ];
     });
 
     try {
-      // TODO(service): swap this stub for the real persistence call, e.g.
-      // await _service.setDone(activity.id, isDone);
-      await _persistDoneStub(activity, isDone);
+      await _service.updateScheduleItem(
+        activity.copyWith(isDone: isDone),
+      );
     } catch (_) {
-      // Revert on failure by reloading from source of truth.
       if (!mounted) return;
-      setState(_reloadDay);
+      await _reloadDay();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not update this task. Please try again.'),
+        ),
+      );
     }
   }
 
-  // TODO(service): DELETE this stub once ScheduleService exposes a real
-  // method for persisting completion state, and call that instead.
-  Future<void> _persistDoneStub(Schedule activity, bool isDone) async {
-    // Intentionally a no-op placeholder so the UI is wired end-to-end and
-    // ready to connect to a real backend call.
-    await Future<void>.delayed(Duration.zero);
-  }
-
-  // TODO(model): this helper assumes `Schedule` has a `copyWith`-style
-  // constructor and an `isDone` bool field. Adjust field names as needed,
-  // or replace this with `activity.copyWith(isDone: isDone)` if that
-  // already exists on your model.
-  Schedule _copyWithDone(Schedule activity, bool isDone) {
-    try {
-      // If Schedule already has copyWith, prefer using it directly instead
-      // of this reflection-free placeholder logic.
-      return (activity as dynamic).copyWith(isDone: isDone) as Schedule;
-    } catch (_) {
-      // Fallback: if there's no copyWith/isDone yet, just return the
-      // original object unchanged. Remove this fallback once the model
-      // TODO above is resolved.
-      return activity;
-    }
-  }
-
-  // ---------------------------------------------------------------------
-  // Add menu (FAB) — manual entry, scan, or upload.
-  // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Add / scan / upload
+  // ---------------------------------------------------------------------------
 
   Future<void> _openAddOptions() async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.transparent,
+      showDragHandle: true,
+      isScrollControlled: true,
       builder: (sheetContext) => _AddOptionsSheet(
         onAddManually: () {
           Navigator.of(sheetContext).pop();
@@ -237,17 +247,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Future<void> _addManually() async {
     final saved = await AddActivitySheet.show(context);
     if (saved == true && mounted) {
-      setState(_reloadDay);
+      await _reloadDay();
       _loadMonthIndicators();
     }
   }
 
-  // TODO(packages): source == camera should use image_picker's
-  // ImagePicker().pickImage(source: ImageSource.camera); source == file
-  // should use file_picker's FilePicker.platform.pickFiles(type: image/pdf).
-  // Right now both paths skip straight to the mocked scan, ignoring the
-  // actual picked file, so the flow is clickable end-to-end without those
-  // packages installed yet.
   Future<void> _startScanFlow({required _ScanSource source}) async {
     final input = await _pickScheduleInput(source);
     if (input == null || !mounted) return;
@@ -265,7 +269,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
 
     if (imported == true && mounted) {
-      setState(_reloadDay);
+      await _reloadDay();
       _loadMonthIndicators();
     }
   }
@@ -274,63 +278,88 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     if (source == _ScanSource.camera) {
       return ImagePicker().pickImage(source: ImageSource.camera);
     }
+
     const group = XTypeGroup(
       label: 'Schedule files',
       extensions: ['pdf', 'csv', 'txt', 'json', 'jpg', 'jpeg', 'png'],
     );
+
     final file = await openFile(acceptedTypeGroups: [group]);
     return file == null ? null : XFile(file.path);
   }
 
-  @override
-  Widget build(BuildContext context) => SafeArea(
-      child: Scaffold(
-          backgroundColor: Colors.transparent,
-          floatingActionButton: FloatingActionButton.extended(
-              backgroundColor: LifeTrackColors.highlight,
-              elevation: 2,
-              onPressed: _openAddOptions,
-              icon: const Icon(Icons.add, color: LifeTrackColors.ink),
-              label: const Text('Add',
-                  style: TextStyle(
-                      color: LifeTrackColors.ink,
-                      fontWeight: FontWeight.w600))),
-          body: ListView(
-              padding: const EdgeInsets.all(LifeTrackMetrics.screenPadding),
-              children: [
-                _header(context),
-                const SizedBox(height: _headerBottomGap),
-                _calendar(context),
-                const SizedBox(height: _calendarBottomGap),
-                _dayDetail(context),
-                const SizedBox(height: _bottomInset),
-              ])));
+  // ---------------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------------
 
-  // True centering via Stack — Row + Expanded drifted off-center whenever
-  // the leading and trailing widgets weren't the same width.
+  @override
+  Widget build(BuildContext context) {
+    final s = context.season;
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'schedule_add_fab',
+        backgroundColor: s.accent,
+        elevation: 2,
+        onPressed: _openAddOptions,
+        icon: Icon(Icons.add, color: s.onAccent),
+        label: Text(
+          'Add',
+          style: TextStyle(
+            color: s.onAccent,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(LifeTrackMetrics.screenPadding),
+          children: [
+            _header(context),
+            const SizedBox(height: _headerBottomGap),
+            _calendar(context),
+            const SizedBox(height: _calendarBottomGap),
+            _dayDetail(context),
+            const SizedBox(height: _bottomInset),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Header
+  // ---------------------------------------------------------------------------
+
   Widget _header(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final theme = Theme.of(context);
+
     return SizedBox(
       height: _headerHeight,
       child: Stack(
         alignment: Alignment.centerLeft,
         children: [
-          Text('Schedule', style: Theme.of(context).textTheme.titleLarge),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Schedule', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 2),
+              Text('Plan your days.', style: theme.textTheme.bodySmall),
+            ],
+          ),
           Align(
             alignment: Alignment.centerRight,
             child: PopupMenuButton<_ScheduleMenuAction>(
               tooltip: 'More options',
-              icon: _iconChip(
-                color: primary,
-                icon: Icons.more_vert_rounded,
-                onTap: null,
-              ),
+              icon: _iconChip(context, icon: Icons.more_vert_rounded),
               onSelected: (action) {
                 switch (action) {
                   case _ScheduleMenuAction.today:
                     _jumpToToday();
                   case _ScheduleMenuAction.refresh:
-                    setState(_reloadDay);
+                    _reloadDay();
                     _loadMonthIndicators();
                 }
               },
@@ -351,38 +380,45 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  // Shared tinted-chip look for header/nav icons. When onTap is null, the
-  // chip is purely visual and the tap handling is left to a parent widget
-  // (used for the PopupMenuButton, which supplies its own tap target).
-  Widget _iconChip({
-    required Color color,
+  Widget _iconChip(
+    BuildContext context, {
     required IconData icon,
     VoidCallback? onTap,
     String? tooltip,
   }) {
+    final s = context.season;
     final chip = Container(
       width: _iconChipSize,
       height: _iconChipSize,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
+        color: s.accent.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Icon(icon, size: 20, color: color),
+      child: Icon(icon, size: 20, color: s.accentText),
     );
+
     if (onTap == null) return chip;
     final button = GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: chip,
     );
-    return tooltip == null ? button : Tooltip(message: tooltip, child: button);
+    return tooltip == null
+        ? button
+        : Tooltip(message: tooltip, child: button);
   }
 
+  // ---------------------------------------------------------------------------
+  // Calendar
+  // ---------------------------------------------------------------------------
+
   Widget _calendar(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final theme = Theme.of(context);
+    final s = context.season;
     final monthLabel = DateFormatter.toDisplayDate(_visibleMonth);
-    return LifeTrackCard(
+
+    return _InlineCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -390,27 +426,40 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _iconChip(
-                color: primary,
+                context,
                 icon: Icons.chevron_left_rounded,
                 onTap: () => _moveMonth(-1),
               ),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(monthLabel,
-                      style: Theme.of(context).textTheme.titleMedium),
+                  AnimatedBuilder(
+                    // Fallback if _monthFade is null (early dispose).
+                    animation: _monthFade ?? kAlwaysCompleteAnimation,
+                    builder: (context, child) => Opacity(
+                      opacity: _monthFade?.value ?? 1.0,
+                      child: child,
+                    ),
+                    child: Text(
+                      monthLabel,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ),
                   if (_loadingIndicators) ...[
                     const SizedBox(width: 8),
-                    const SizedBox(
+                    SizedBox(
                       width: 12,
                       height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: s.accentText,
+                      ),
                     ),
                   ],
                 ],
               ),
               _iconChip(
-                color: primary,
+                context,
                 icon: Icons.chevron_right_rounded,
                 onTap: () => _moveMonth(1),
               ),
@@ -419,7 +468,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           const SizedBox(height: 14),
           _weekdayLabels(context),
           const SizedBox(height: _dayCellGap),
-          _monthGrid(context),
+          AnimatedBuilder(
+            animation: _monthFade ?? kAlwaysCompleteAnimation,
+            builder: (context, child) => Opacity(
+              opacity: _monthFade?.value ?? 1.0,
+              child: child,
+            ),
+            child: _monthGrid(context),
+          ),
         ],
       ),
     );
@@ -434,18 +490,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     return Row(
       children: [
         for (final label in labels)
-          Expanded(
-            child: Center(child: Text(label, style: style)),
-          ),
+          Expanded(child: Center(child: Text(label, style: style))),
       ],
     );
   }
 
   Widget _monthGrid(BuildContext context) {
-    final firstOfMonth = DateTime(_visibleMonth.year, _visibleMonth.month, 1);
+    final firstOfMonth = DateTime(
+      _visibleMonth.year,
+      _visibleMonth.month,
+      1,
+    );
     final daysInMonth =
         DateTime(_visibleMonth.year, _visibleMonth.month + 1, 0).day;
-    // DateTime.weekday: Mon=1..Sun=7. We want a Sun-first grid, so shift.
     final leadingBlanks = firstOfMonth.weekday % 7;
     final totalCells = leadingBlanks + daysInMonth;
     final rows = (totalCells / 7).ceil();
@@ -454,13 +511,20 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       children: [
         for (var row = 0; row < rows; row++)
           Padding(
-            padding: EdgeInsets.only(bottom: row == rows - 1 ? 0 : _dayCellGap),
+            padding: EdgeInsets.only(
+              bottom: row == rows - 1 ? 0 : _dayCellGap,
+            ),
             child: Row(
               children: [
                 for (var col = 0; col < 7; col++)
                   Expanded(
-                      child: _dayCell(
-                          context, row * 7 + col, leadingBlanks, daysInMonth)),
+                    child: _dayCell(
+                      context,
+                      row * 7 + col,
+                      leadingBlanks,
+                      daysInMonth,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -469,17 +533,25 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Widget _dayCell(
-      BuildContext context, int cellIndex, int leadingBlanks, int daysInMonth) {
+    BuildContext context,
+    int cellIndex,
+    int leadingBlanks,
+    int daysInMonth,
+  ) {
     final dayNum = cellIndex - leadingBlanks + 1;
     if (dayNum < 1 || dayNum > daysInMonth) {
-      return const AspectRatio(aspectRatio: 1, child: SizedBox.shrink());
+      return const AspectRatio(
+        aspectRatio: 1,
+        child: SizedBox.shrink(),
+      );
     }
 
     final date = DateTime(_visibleMonth.year, _visibleMonth.month, dayNum);
     final isSelected = _isSameDay(date, _selectedDate);
     final isToday = _isSameDay(date, DateTime.now());
-    final hasItems = _monthIndicators[DateFormatter.toDbDate(date)] ?? false;
-    final primary = Theme.of(context).colorScheme.primary;
+    final hasItems =
+        _monthIndicators[DateFormatter.toDbDate(date)] ?? false;
+    final s = context.season;
 
     return AspectRatio(
       aspectRatio: 1,
@@ -493,10 +565,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           decoration: BoxDecoration(
             color: isSelected
                 ? LifeTrackColors.highlight.withValues(alpha: 0.18)
-                : (isToday ? primary.withValues(alpha: 0.06) : null),
+                : isToday
+                    ? s.accent.withValues(alpha: 0.06)
+                    : null,
             borderRadius: BorderRadius.circular(12),
             border: isToday && !isSelected
-                ? Border.all(color: primary.withValues(alpha: 0.4))
+                ? Border.all(color: s.accent.withValues(alpha: 0.4))
                 : null,
           ),
           alignment: Alignment.center,
@@ -508,7 +582,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight:
                           isSelected || isToday ? FontWeight.bold : null,
-                      color: isSelected ? LifeTrackColors.highlight : null,
+                      color:
+                          isSelected ? LifeTrackColors.highlight : null,
                     ),
               ),
               const SizedBox(height: 3),
@@ -531,38 +606,75 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Day detail
+  // ---------------------------------------------------------------------------
+
   Widget _dayDetail(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _dayDetailHeader(context),
         const SizedBox(height: 12),
-        FutureBuilder<List<Schedule>>(
-          future: _dayFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (snapshot.hasError) {
-              return _errorState(context);
-            }
-            final items = snapshot.data ?? const <Schedule>[];
-            if (items.isEmpty) return _emptyState(context);
-            return Column(
-              children: [
-                for (var i = 0; i < items.length; i++)
-                  Padding(
-                    padding: EdgeInsets.only(
-                        bottom: i == items.length - 1 ? 0 : _itemGap),
-                    child: _activityRow(context, items[i]),
+        _dayDetailBody(context),
+      ],
+    );
+  }
+
+  Widget _dayDetailBody(BuildContext context) {
+    if (_dayItems == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_dayError) return _errorState(context);
+
+    final items = _dayItems!;
+    if (items.isEmpty) return _emptyState(context);
+
+    _rowAnims.removeWhere((index, c) {
+      if (index >= items.length) {
+        c.dispose();
+        return true;
+      }
+      return false;
+    });
+    for (var i = 0; i < items.length; i++) {
+      _rowAnims.putIfAbsent(
+        i,
+        () => AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 350),
+          lowerBound: 0.0,
+          upperBound: 1.0,
+          value: 0.0,
+        )..forward(),
+      );
+    }
+
+    return Column(
+      children: [
+        for (var i = 0; i < items.length; i++)
+          Padding(
+            padding: EdgeInsets.only(
+              bottom: i == items.length - 1 ? 0 : _itemGap,
+            ),
+            child: AnimatedBuilder(
+              animation: _rowAnims[i]!,
+              builder: (context, child) {
+                final t = _rowAnims[i]!.value;
+                return Opacity(
+                  opacity: t,
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - t) * 16),
+                    child: child,
                   ),
-              ],
-            );
-          },
-        ),
+                );
+              },
+              child: _activityRow(context, items[i]),
+            ),
+          ),
       ],
     );
   }
@@ -580,46 +692,170 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  // TODO(model): reads `activity.isDone`. Update the field name here if
-  // your Schedule model calls it something else (e.g. `completed`, `done`).
   Widget _activityRow(BuildContext context, Schedule activity) {
-    bool isDone = false;
-    try {
-      isDone = (activity as dynamic).isDone as bool? ?? false;
-    } catch (_) {
-      // TODO(model): `isDone` not found on Schedule yet — treat as not done
-      // until the field is added.
-      isDone = false;
-    }
+    final isDone = activity.isDone;
+    final theme = Theme.of(context);
+    final s = context.season;
+    const cardMinHeight = 82.0;
 
-    return LifeTrackCard(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            onTap: () => _toggleDone(activity, !isDone),
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 2, right: 12),
-              child: Icon(
-                isDone
-                    ? Icons.check_circle_rounded
-                    : Icons.radio_button_unchecked_rounded,
-                size: 24,
-                color: isDone
-                    ? LifeTrackColors.highlight
-                    : Theme.of(context).textTheme.bodyMedium?.color,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: cardMinHeight),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _showActivityDetails(activity),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: () => _toggleDone(activity, !isDone),
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 4, right: 12),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: Icon(
+                      isDone
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      key: ValueKey(isDone),
+                      size: 28,
+                      color: isDone
+                          ? LifeTrackColors.highlight
+                          : theme.textTheme.bodyMedium?.color,
+                    ),
+                  ),
+                ),
               ),
-            ),
+              Expanded(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 180),
+                  opacity: isDone ? 0.55 : 1,
+                  child: _InlineCard(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: s.accent.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            _iconForCategory(activity.category),
+                            size: 20,
+                            color: s.accentText,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                activity.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleMedium
+                                    ?.copyWith(
+                                  decoration: isDone
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.schedule_rounded,
+                                    size: 12,
+                                    color: theme
+                                        .textTheme.bodyMedium?.color,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Flexible(
+                                    child: Text(
+                                      '${activity.startTime} – ${activity.endTime}',
+                                      overflow:
+                                          TextOverflow.ellipsis,
+                                      style:
+                                          theme.textTheme.bodySmall,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      activity.category,
+                                      overflow:
+                                          TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                              color: s.accentText),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 20,
+                          color: theme.textTheme.bodyMedium?.color
+                              ?.withValues(alpha: 0.45),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          Expanded(
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 180),
-              opacity: isDone ? 0.55 : 1,
-              child: ScheduleCard(activity: activity),
-            ),
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  IconData _iconForCategory(String category) {
+    switch (category.toLowerCase()) {
+      case 'coding':
+        return Icons.code_rounded;
+      case 'school':
+        return Icons.school_rounded;
+      case 'work':
+        return Icons.work_rounded;
+      case 'personal':
+        return Icons.person_rounded;
+      case 'free':
+        return Icons.bolt_rounded;
+      default:
+        return Icons.event_note_rounded;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Task details sheet
+  // ---------------------------------------------------------------------------
+
+  Future<void> _showActivityDetails(Schedule activity) async {
+    final isDone = activity.isDone;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => _TaskDetailsSheet(
+        activity: activity,
+        selectedDate: DateFormatter.toDisplayDate(_selectedDate),
+        isDone: isDone,
+        onToggleDone: () async {
+          Navigator.of(sheetContext).pop();
+          await _toggleDone(activity, !isDone);
+        },
       ),
     );
   }
@@ -634,7 +870,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       child: Text(
         'Today',
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: LifeTrackColors.highlight,
+              color: LifeTrackColors.highlightDeep,
               fontWeight: FontWeight.w600,
             ),
       ),
@@ -642,36 +878,40 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Widget _errorState(BuildContext context) {
-    return LifeTrackCard(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.cloud_off_rounded,
-            size: 36,
-            color: Theme.of(context).textTheme.bodyMedium?.color,
-          ),
-          const SizedBox(height: 8),
-          Text('Unable to load this day',
-              style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 4),
-          Text('Check your connection and try again.',
+    final theme = Theme.of(context);
+    return _InlineCard(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_rounded,
+                size: 36, color: theme.textTheme.bodyMedium?.color),
+            const SizedBox(height: 8),
+            Text('Unable to load this day',
+                style: theme.textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              'Check your connection and try again.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: () => setState(_reloadDay),
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('Retry'),
-          ),
-        ],
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _reloadDay,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _emptyState(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return LifeTrackCard(
+    final s = context.season;
+    final theme = Theme.of(context);
+    return _InlineCard(
       child: Row(
         children: [
           Container(
@@ -679,11 +919,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             height: _iconChipSize,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: primary.withValues(alpha: 0.08),
+              color: s.accent.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(10),
             ),
-            child:
-                Icon(Icons.event_available_rounded, size: 20, color: primary),
+            child: Icon(Icons.event_available_rounded,
+                size: 20, color: s.accentText),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -691,10 +931,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Nothing scheduled for this day.',
-                    style: Theme.of(context).textTheme.bodyLarge),
+                    style: theme.textTheme.bodyLarge),
                 const SizedBox(height: 2),
                 Text('Tap "Add" to create or scan a schedule.',
-                    style: Theme.of(context).textTheme.bodySmall),
+                    style: theme.textTheme.bodySmall),
               ],
             ),
           ),
@@ -704,12 +944,215 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 }
 
-enum _ScheduleMenuAction { today, refresh }
+// ============================================================================
+// Local card surface
+// ============================================================================
 
-enum _ScanSource { camera, file }
+class _InlineCard extends StatelessWidget {
+  const _InlineCard({required this.child, this.padding});
+  final Widget child;
+  final EdgeInsets? padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: padding ?? const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(LifeTrackMetrics.cardRadius),
+        border: Border.all(color: Theme.of(context).dividerColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
 
 // ============================================================================
-// Add-options bottom sheet
+// Task details sheet
+// ============================================================================
+
+class _TaskDetailsSheet extends StatelessWidget {
+  final Schedule activity;
+  final String selectedDate;
+  final bool isDone;
+  final VoidCallback onToggleDone;
+
+  const _TaskDetailsSheet({
+    required this.activity,
+    required this.selectedDate,
+    required this.isDone,
+    required this.onToggleDone,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = context.season;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: s.accent.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    isDone
+                        ? Icons.check_circle_rounded
+                        : Icons.event_note_rounded,
+                    color: isDone
+                        ? LifeTrackColors.highlight
+                        : s.accentText,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        activity.title,
+                        style: theme.textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isDone ? 'Completed' : 'Scheduled task',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: isDone
+                              ? LifeTrackColors.highlightDeep
+                              : s.accentText,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _TaskDetailItem(
+                icon: Icons.calendar_today_rounded,
+                label: 'Date',
+                value: selectedDate),
+            const SizedBox(height: 10),
+            _TaskDetailItem(
+                icon: Icons.schedule_rounded,
+                label: 'Time',
+                value: '${activity.startTime} – ${activity.endTime}'),
+            const SizedBox(height: 10),
+            _TaskDetailItem(
+                icon: Icons.category_rounded,
+                label: 'Category',
+                value: activity.category),
+            const SizedBox(height: 22),
+            FilledButton.icon(
+              onPressed: onToggleDone,
+              icon: Icon(
+                isDone
+                    ? Icons.undo_rounded
+                    : Icons.check_circle_outline_rounded,
+                size: 18,
+              ),
+              label: Text(
+                isDone
+                    ? 'Mark as not completed'
+                    : 'Mark as completed',
+              ),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskDetailItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _TaskDetailItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = context.season;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: s.accent.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: s.accent.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 20, color: s.accentText),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    )),
+                const SizedBox(height: 2),
+                Text(value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    )),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Add options sheet
 // ============================================================================
 
 class _AddOptionsSheet extends StatelessWidget {
@@ -725,39 +1168,45 @@ class _AddOptionsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = context.season;
+
     return SafeArea(
-      child: Container(
-        margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).dividerColor,
-                  borderRadius: BorderRadius.circular(999),
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: s.accent.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(Icons.event_note_rounded,
+                      size: 24, color: s.accentText),
                 ),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Add to schedule',
+                          style: theme.textTheme.titleLarge),
+                      const SizedBox(height: 2),
+                      Text('Pick how you want to add.',
+                          style: theme.textTheme.bodyMedium),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            Text('Add to schedule',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             _AddOptionTile(
               icon: Icons.edit_calendar_rounded,
               title: 'Add manually',
@@ -800,25 +1249,27 @@ class _AddOptionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final s = context.season;
     return Material(
-      color: Colors.transparent,
+      color: s.accent.withValues(alpha: 0.06),
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          padding:
+              const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
           child: Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 40,
+                height: 40,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: primary.withValues(alpha: 0.08),
+                  color: s.accent.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, size: 22, color: primary),
+                child: Icon(icon, size: 20, color: s.accentText),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -826,9 +1277,10 @@ class _AddOptionTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(title,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            )),
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyLarge
+                            ?.copyWith(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
                     Text(subtitle,
                         style: Theme.of(context).textTheme.bodySmall),
@@ -836,7 +1288,8 @@ class _AddOptionTile extends StatelessWidget {
                 ),
               ),
               Icon(Icons.chevron_right_rounded,
-                  color: Theme.of(context).textTheme.bodyMedium?.color),
+                  color: Theme.of(context).textTheme.bodyMedium?.color
+                      ?.withValues(alpha: 0.5)),
             ],
           ),
         ),
@@ -846,19 +1299,22 @@ class _AddOptionTile extends StatelessWidget {
 }
 
 // ============================================================================
-// Scan / Upload review flow
+// Enums
 // ============================================================================
 
-/// A single detected activity from the scan step, before it's converted
-/// into a real [Schedule] and saved. Kept as its own light model (rather
-/// than reusing Schedule directly) so the review UI can hold an editable,
-/// possibly-wrong draft without touching the real model until the user
-/// confirms import.
+enum _ScheduleMenuAction { today, refresh }
+
+enum _ScanSource { camera, file }
+
+// ============================================================================
+// Scanned activity + mock scan service
+// ============================================================================
+
 class _ScannedActivity {
   String title;
   String category;
-  String startTime; // 'HH:mm'
-  String endTime; // 'HH:mm'
+  String startTime;
+  String endTime;
   bool selected;
 
   _ScannedActivity({
@@ -866,38 +1322,42 @@ class _ScannedActivity {
     required this.category,
     required this.startTime,
     required this.endTime,
-    this.selected = true,
-  });
+  }) : selected = true;
 }
 
-/// TODO(backend): this whole class is a placeholder. Replace `mockScan()`
-/// with a real pipeline: capture/pick file -> OCR -> text parsing ->
-/// structured activities. See the file-level TODO block up top for the
-/// exact steps and suggested packages.
+/// TODO(backend): replace with a real OCR / parsing service.
 class _ScheduleScanService {
-  Future<List<_ScannedActivity>> scan(_ScanSource source, XFile input) async {
+  Future<List<_ScannedActivity>> scan(
+    _ScanSource source,
+    XFile input,
+  ) async {
     await Future<void>.delayed(const Duration(seconds: 2));
-    // Fixed sample data so the review UI is fully clickable/demoable
-    // without a real OCR call wired up yet.
     return [
       _ScannedActivity(
-          title: 'Java Practice',
-          category: 'Coding',
-          startTime: '14:00',
-          endTime: '15:00'),
+        title: 'Java Practice',
+        category: 'Coding',
+        startTime: '14:00',
+        endTime: '15:00',
+      ),
       _ScannedActivity(
-          title: 'Freelance Project',
-          category: 'Freelance',
-          startTime: '17:00',
-          endTime: '18:00'),
+        title: 'Freelance Project',
+        category: 'Freelance',
+        startTime: '17:00',
+        endTime: '18:00',
+      ),
       _ScannedActivity(
-          title: 'Lunch',
-          category: 'Personal',
-          startTime: '12:00',
-          endTime: '13:00'),
+        title: 'Lunch',
+        category: 'Personal',
+        startTime: '12:00',
+        endTime: '13:00',
+      ),
     ];
   }
 }
+
+// ============================================================================
+// Scan review sheet
+// ============================================================================
 
 class _ScheduleScanReviewSheet extends StatefulWidget {
   final _ScanSource source;
@@ -917,9 +1377,9 @@ class _ScheduleScanReviewSheet extends StatefulWidget {
       _ScheduleScanReviewSheetState();
 }
 
-class _ScheduleScanReviewSheetState extends State<_ScheduleScanReviewSheet> {
+class _ScheduleScanReviewSheetState
+    extends State<_ScheduleScanReviewSheet> {
   final _scanService = _ScheduleScanService();
-
   bool _loading = true;
   bool _importing = false;
   List<_ScannedActivity> _results = [];
@@ -931,11 +1391,6 @@ class _ScheduleScanReviewSheetState extends State<_ScheduleScanReviewSheet> {
   }
 
   Future<void> _runScan() async {
-    // TODO(packages): before calling mockScan, this is where you'd:
-    //   - source == camera: final photo = await ImagePicker().pickImage(source: ImageSource.camera);
-    //   - source == file: final file = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['jpg','png','pdf']);
-    // then pass that file into the real scan/parse pipeline instead of
-    // calling the mock directly.
     final results = await _scanService.scan(widget.source, widget.input);
     if (!mounted) return;
     setState(() {
@@ -944,11 +1399,6 @@ class _ScheduleScanReviewSheetState extends State<_ScheduleScanReviewSheet> {
     });
   }
 
-  // TODO(service): confirm the actual persistence method/signature on
-  // ScheduleService — assuming `addScheduleItem(Schedule item)` here based
-  // on the rest of this codebase's ScheduleService. Swap if it's named
-  // differently, or if a batch-insert method exists, prefer that instead
-  // of looping one-by-one.
   Future<void> _importSelected() async {
     final selected = _results.where((r) => r.selected).toList();
     if (selected.isEmpty) {
@@ -957,7 +1407,6 @@ class _ScheduleScanReviewSheetState extends State<_ScheduleScanReviewSheet> {
     }
 
     setState(() => _importing = true);
-
     try {
       for (final item in selected) {
         final schedule = Schedule(
@@ -967,7 +1416,6 @@ class _ScheduleScanReviewSheetState extends State<_ScheduleScanReviewSheet> {
           endTime: item.endTime,
           date: DateFormatter.toDbDate(widget.defaultDate),
         );
-        // TODO(service): confirm this call — see class-level TODO above.
         await widget.scheduleService.addScheduleItem(schedule);
       }
       if (!mounted) return;
@@ -976,14 +1424,18 @@ class _ScheduleScanReviewSheetState extends State<_ScheduleScanReviewSheet> {
       if (!mounted) return;
       setState(() => _importing = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not import — please try again.')),
+        const SnackBar(
+          content: Text('Could not import — please try again.'),
+        ),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final sourceLabel = widget.source == _ScanSource.camera ? 'photo' : 'file';
+    final s = context.season;
+    final sourceLabel =
+        widget.source == _ScanSource.camera ? 'photo' : 'file';
 
     return SafeArea(
       child: FractionallySizedBox(
@@ -1002,29 +1454,35 @@ class _ScheduleScanReviewSheetState extends State<_ScheduleScanReviewSheet> {
               ),
             ],
           ),
-          child: _loading ? _loadingState(sourceLabel) : _resultsState(context),
+          child: _loading
+              ? _loadingState(sourceLabel)
+              : _resultsState(context),
         ),
       ),
     );
   }
 
   Widget _loadingState(String sourceLabel) {
+    final s = context.season;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const CircularProgressIndicator(),
+        CircularProgressIndicator(color: s.accent),
         const SizedBox(height: 16),
         Text('Scanning your $sourceLabel...',
             style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 4),
-        Text('Looking for activities, times, and categories',
-            style: Theme.of(context).textTheme.bodySmall,
-            textAlign: TextAlign.center),
+        Text(
+          'Looking for activities, times, and categories',
+          style: Theme.of(context).textTheme.bodySmall,
+          textAlign: TextAlign.center,
+        ),
       ],
     );
   }
 
   Widget _resultsState(BuildContext context) {
+    final s = context.season;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1048,45 +1506,57 @@ class _ScheduleScanReviewSheetState extends State<_ScheduleScanReviewSheet> {
         if (_results.isEmpty)
           Expanded(
             child: Center(
-              child: Text("Couldn't find anything to import.",
-                  style: Theme.of(context).textTheme.bodyMedium),
+              child: Text(
+                "Couldn't find anything to import.",
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
             ),
           )
         else
           Expanded(
             child: ListView.separated(
               itemCount: _results.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              separatorBuilder: (_, __) =>
+                  const SizedBox(height: 8),
               itemBuilder: (context, index) =>
                   _scannedItemTile(_results[index]),
             ),
           ),
         const SizedBox(height: 12),
         FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: s.accent),
           onPressed: _importing ? null : _importSelected,
           child: _importing
-              ? const SizedBox(
+              ? SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
+                    strokeWidth: 2,
+                    color: s.onAccent,
+                  ),
                 )
               : Text(
-                  'Import ${_results.where((r) => r.selected).length} activities'),
+                  'Import ${_results.where((r) => r.selected).length} activities',
+                ),
         ),
       ],
     );
   }
 
   Widget _scannedItemTile(_ScannedActivity item) {
-    return LifeTrackCard(
+    final s = context.season;
+    return _InlineCard(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Checkbox(
             value: item.selected,
-            onChanged: (value) =>
-                setState(() => item.selected = value ?? false),
+            activeColor: s.accent,
+            onChanged: (value) {
+              setState(() {
+                item.selected = value ?? false;
+              });
+            },
           ),
           Expanded(
             child: Column(
@@ -1094,14 +1564,17 @@ class _ScheduleScanReviewSheetState extends State<_ScheduleScanReviewSheet> {
               children: [
                 TextFormField(
                   initialValue: item.title,
-                  onChanged: (value) => item.title = value,
+                  onChanged: (value) {
+                    item.title = value;
+                  },
                   decoration: const InputDecoration(
                     isDense: true,
                     border: InputBorder.none,
                   ),
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyLarge
+                      ?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 2),
                 Text(

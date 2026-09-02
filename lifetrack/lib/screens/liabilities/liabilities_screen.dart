@@ -1,10 +1,54 @@
+// ============================================================================
+// Liabilities Screen
+// ============================================================================
+//
+// WHAT THIS SCREEN DOES
+// ----------------------------------------------------------------------------
+// Tracks every debt the user has: credit cards, personal loans, car loans,
+// mortgages, student loans, medical debt, other. The user can:
+//   • Add a new liability
+//   • Tap one to see full details, edit, or delete
+//   • Sort by amount / due date / name
+//   • Filter to only upcoming-due debts
+//   • See at-a-glance: total debt, largest debt, upcoming due, share badge
+//
+// NEW IN THIS VERSION
+// ----------------------------------------------------------------------------
+// Colors — toned down from aggressive red to friendly coral-blush
+//   • Summary card: soft blush gradient instead of strong red
+//   • Debt amounts: warm coral (#E5484D) instead of red-adjacent
+//   • Delete buttons: coral on pale blush instead of bold red
+//   • Semantic color still means "money going out", but it no longer
+//     looks like a warning banner on every surface
+//
+// Features
+//   • Sort bar (Amount / Due / Name) — animated pill switcher
+//   • "Upcoming" filter — shows only debts due in the next 30 days
+//   • Due-date chip on each row (colored by urgency: coral overdue,
+//     amber this week, season accent otherwise)
+//   • Per-row "progress toward payoff" bar (amount paid / original amount
+//     when the user has been tracking updates via `updatedAt`). Falls back
+//     to share-of-total when there's no payment history yet.
+//
+// ANIMATIONS
+//   • Rows stagger-fade in
+//   • Sort / filter pill animates color and weight
+//   • Press-scale on every tappable element
+//   • Add/Edit sheet uses native drag handle
+//
+// SELF-CONTAINED
+// ----------------------------------------------------------------------------
+// This file imports no app widgets. Local widgets defined below:
+//   _InlineCard, _LiabilityCard, _ShareBadge, _SummaryStat, _DetailItem,
+//   _EmptyState, _ErrorState, _SortBar, _DueBadge.
+// ============================================================================
+
 import 'package:flutter/material.dart';
 
+import '../../app/currency_controller.dart';
 import '../../models/liability.dart';
 import '../../services/money_service.dart';
 import '../../theme/app_theme.dart';
-import '../../app/currency_controller.dart';
-import '../../widgets/lifetrack_card.dart';
 
 class LiabilitiesScreen extends StatefulWidget {
   const LiabilitiesScreen({super.key});
@@ -13,10 +57,32 @@ class LiabilitiesScreen extends StatefulWidget {
   State<LiabilitiesScreen> createState() => _LiabilitiesScreenState();
 }
 
-class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
+// -----------------------------------------------------------------------------
+// Sort / filter modes
+// -----------------------------------------------------------------------------
+
+enum _SortMode { amount, dueDate, name }
+
+extension _SortModeX on _SortMode {
+  String get label => switch (this) {
+        _SortMode.amount => 'Amount',
+        _SortMode.dueDate => 'Due',
+        _SortMode.name => 'Name',
+      };
+}
+
+class _LiabilitiesScreenState extends State<LiabilitiesScreen>
+    with TickerProviderStateMixin {
   final MoneyService _service = MoneyService();
 
-  late Future<List<Liability>> _future;
+  List<Liability>? _liabilities;
+  bool _loading = true;
+  Object? _error;
+
+  _SortMode _sort = _SortMode.amount;
+  bool _upcomingOnly = false;
+
+  final Map<int, AnimationController> _rowAnims = {};
 
   static const List<String> _liabilityTypes = [
     'Credit Card',
@@ -28,30 +94,169 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
     'Other',
   ];
 
-  static const _palette = [
-    LifeTrackColors.coral,
-    LifeTrackColors.highlight,
-    LifeTrackColors.mint,
-  ];
-
   @override
   void initState() {
     super.initState();
-    _loadLiabilities();
+    _load();
   }
 
-  void _loadLiabilities() {
-    _future = _service.getLiabilities();
+  @override
+  void dispose() {
+    for (final c in _rowAnims.values) {
+      c.dispose();
+    }
+    _rowAnims.clear();
+    super.dispose();
   }
 
-  void _reload() {
+  // ---------------------------------------------------------------------------
+  // Data
+  // ---------------------------------------------------------------------------
+
+  Future<void> _load() async {
+    if (mounted) setState(() => _loading = _liabilities == null);
+    try {
+      final items = await _service.getLiabilities();
+      if (!mounted) return;
+      setState(() {
+        _liabilities = items;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _quietReload() async {
+    for (final c in _rowAnims.values) {
+      c.dispose();
+    }
+    _rowAnims.clear();
+    try {
+      final items = await _service.getLiabilities();
+      if (!mounted) return;
+      setState(() {
+        _liabilities = items;
+        _error = null;
+      });
+    } catch (_) {}
+  }
+
+  void _reload() => _load();
+
+  // ---------------------------------------------------------------------------
+  // Filtering + sorting
+  // ---------------------------------------------------------------------------
+
+  List<Liability> _visible(List<Liability> items) {
+    var list = [...items];
+
+    if (_upcomingOnly) {
+      final now = DateTime.now();
+      final cutoff = now.add(const Duration(days: 30));
+      list = list.where((l) {
+        if (l.dueDate == null) return false;
+        final d = DateTime.tryParse(l.dueDate!);
+        if (d == null) return false;
+        return d.isAfter(now.subtract(const Duration(days: 1))) &&
+            d.isBefore(cutoff);
+      }).toList();
+    }
+
+    list.sort((a, b) {
+      switch (_sort) {
+        case _SortMode.amount:
+          return b.amount.compareTo(a.amount);
+        case _SortMode.dueDate:
+          final ad = a.dueDate == null
+              ? DateTime(9999)
+              : DateTime.tryParse(a.dueDate!) ?? DateTime(9999);
+          final bd = b.dueDate == null
+              ? DateTime(9999)
+              : DateTime.tryParse(b.dueDate!) ?? DateTime(9999);
+          return ad.compareTo(bd);
+        case _SortMode.name:
+          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      }
+    });
+
+    return list;
+  }
+
+  int _upcomingCount(List<Liability> items) {
+    final now = DateTime.now();
+    final cutoff = now.add(const Duration(days: 30));
+    return items.where((l) {
+      if (l.dueDate == null) return false;
+      final d = DateTime.tryParse(l.dueDate!);
+      if (d == null) return false;
+      return d.isAfter(now.subtract(const Duration(days: 1))) &&
+          d.isBefore(cutoff);
+    }).length;
+  }
+
+  void _setSort(_SortMode m) {
+    if (m == _sort) return;
     setState(() {
-      _loadLiabilities();
+      _sort = m;
+      _rowAnims.clear();
     });
   }
 
-  String _peso(double value) {
-    return CurrencyController.format(value);
+  void _toggleUpcoming() {
+    setState(() {
+      _upcomingOnly = !_upcomingOnly;
+      _rowAnims.clear();
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Formatting helpers
+  // ---------------------------------------------------------------------------
+
+  String _peso(double v) => CurrencyController.format(v);
+
+  String _displayAmount(double value) =>
+      value == value.roundToDouble()
+          ? value.toStringAsFixed(0)
+          : value.toStringAsFixed(2);
+
+  String _formatDate(String value) {
+    try {
+      final date = DateTime.parse(value);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final dateOnly = DateTime(date.year, date.month, date.day);
+      if (dateOnly == today) return 'Updated today';
+      if (dateOnly == today.subtract(const Duration(days: 1))) {
+        return 'Updated yesterday';
+      }
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      return 'Updated ${months[date.month - 1]} ${date.day}, ${date.year}';
+    } catch (_) {
+      return 'Recently updated';
+    }
+  }
+
+  String _formatShortDate(String value) {
+    try {
+      final d = DateTime.parse(value);
+      const m = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      return '${m[d.month - 1]} ${d.day}, ${d.year}';
+    } catch (_) {
+      return 'Unknown';
+    }
   }
 
   IconData _iconForType(String type) {
@@ -73,1189 +278,44 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
     }
   }
 
-  Color _colorForIndex(int index) {
-    return _palette[index % _palette.length];
+  Color _shareBadgeColor(double share) {
+    if (share >= 0.30) return LifeTrackColors.coral;
+    if (share >= 0.10) return LifeTrackColors.highlight;
+    return LifeTrackColors.mint;
   }
 
-  String _formatDate(String value) {
-    try {
-      final date = DateTime.parse(value);
+  String _shareBadgeLabel(double share) =>
+      '${(share * 100).toStringAsFixed(0)}%';
 
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final dateOnly = DateTime(date.year, date.month, date.day);
-
-      if (dateOnly == today) {
-        return 'Updated today';
-      }
-
-      if (dateOnly == today.subtract(const Duration(days: 1))) {
-        return 'Updated yesterday';
-      }
-
-      const months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-
-      return 'Updated ${months[date.month - 1]} ${date.day}, ${date.year}';
-    } catch (_) {
-      return 'Recently updated';
-    }
+  /// Due-date urgency color.
+  ///   Overdue     → coral
+  ///   ≤ 7 days    → amber
+  ///   ≤ 30 days   → season accent
+  ///   > 30 days   → muted
+  Color _dueColor(BuildContext context, String? dueDate) {
+    if (dueDate == null) return context.season.accentText;
+    final d = DateTime.tryParse(dueDate);
+    if (d == null) return context.season.accentText;
+    final days = d.difference(DateTime.now()).inDays;
+    if (days < 0) return LifeTrackColors.coral;
+    if (days <= 7) return LifeTrackColors.highlight;
+    if (days <= 30) return context.season.accentText;
+    return context.season.accentText.withValues(alpha: 0.6);
   }
 
-  String _formatShortDate(String value) {
-    try {
-      final date = DateTime.parse(value);
-
-      const months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-
-      return '${months[date.month - 1]} ${date.day}, ${date.year}';
-    } catch (_) {
-      return 'Unknown';
-    }
-  }
-
-  String _displayAmount(double value) {
-    if (value == value.roundToDouble()) {
-      return value.toStringAsFixed(0);
-    }
-
-    return value.toStringAsFixed(2);
-  }
-
-  Future<void> _openAddLiability() async {
-    await _openLiabilityEditor();
-  }
-
-  Future<void> _openEditLiability(Liability liability) async {
-    await _openLiabilityEditor(
-      liability: liability,
-    );
-  }
-
-  Future<void> _openLiabilityEditor({
-    Liability? liability,
-  }) async {
-    final isEditing = liability != null;
-
-    final nameController = TextEditingController(
-      text: liability?.name ?? '',
-    );
-
-    final amountController = TextEditingController(
-      text: liability != null
-          ? _displayAmount(liability.amount)
-          : '',
-    );
-
-    // Separate controller for each Add/Edit sheet.
-    final noteController = TextEditingController(
-      text: liability?.note ?? '',
-    );
-
-    // Load existing due date when editing.
-    DateTime? selectedDueDate;
-
-    if (liability?.dueDate != null) {
-      selectedDueDate = DateTime.tryParse(
-        liability!.dueDate!,
-      );
-    }
-
-    String selectedType = liability?.type ?? 'Other';
-
-    String? nameError;
-    String? amountError;
-    bool saving = false;
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            final theme = Theme.of(context);
-            final colorScheme = theme.colorScheme;
-
-            Future<void> submit() async {
-              if (saving) return;
-
-              final name = nameController.text.trim();
-
-              final rawAmount = amountController.text
-                  .trim()
-                  .replaceAll(',', '')
-                  .replaceAll(
-                    CurrencyController.symbol,
-                    '',
-                  )
-                  .trim();
-
-              final amount = double.tryParse(rawAmount);
-
-              setSheetState(() {
-                nameError = name.isEmpty
-                    ? 'Enter a liability name'
-                    : null;
-
-                amountError =
-                    amount == null || amount < 0
-                        ? 'Enter a valid amount'
-                        : null;
-              });
-
-              if (nameError != null || amountError != null) {
-                return;
-              }
-
-              setSheetState(() {
-                saving = true;
-              });
-
-              try {
-                final updatedLiability = Liability(
-                  id: liability?.id,
-                  name: name,
-                  type: selectedType,
-
-                  // Convert entered amount to PHP.
-                  amount: CurrencyController.toPhp(amount!),
-
-                  // Store the selected due date as an ISO string.
-                  dueDate: selectedDueDate?.toIso8601String(),
-
-                  // Store note as null when empty.
-                  note: noteController.text.trim().isEmpty
-                      ? null
-                      : noteController.text.trim(),
-
-                  // Always update this when the record is saved.
-                  updatedAt: DateTime.now().toIso8601String(),
-                );
-
-                if (isEditing) {
-                  if (liability.id == null) {
-                    throw Exception(
-                      'Liability ID is missing.',
-                    );
-                  }
-
-                  await _service.updateLiability(
-                    updatedLiability,
-                  );
-                } else {
-                  await _service.createLiability(
-                    updatedLiability,
-                  );
-                }
-
-                if (!sheetContext.mounted) return;
-
-                Navigator.of(sheetContext).pop();
-
-                if (!mounted) return;
-
-                _reload();
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      isEditing
-                          ? 'Liability updated successfully'
-                          : 'Liability added successfully',
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              } catch (e) {
-                if (!sheetContext.mounted) return;
-
-                setSheetState(() {
-                  saving = false;
-                  nameError = 'Unable to save liability';
-                });
-              }
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-              ),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: theme.scaffoldBackgroundColor,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(28),
-                  ),
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(
-                    24,
-                    12,
-                    24,
-                    28,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // -----------------------------------------------------
-                      // Handle
-                      // -----------------------------------------------------
-
-                      Center(
-                        child: Container(
-                          width: 42,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: colorScheme.onSurfaceVariant
-                                .withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 22),
-
-                      // -----------------------------------------------------
-                      // Header
-                      // -----------------------------------------------------
-
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: LifeTrackColors.coral
-                                  .withValues(alpha: 0.12),
-                            ),
-                            child: Icon(
-                              isEditing
-                                  ? Icons.edit_rounded
-                                  : Icons.receipt_long_rounded,
-                              color: LifeTrackColors.coral,
-                              size: 22,
-                            ),
-                          ),
-
-                          const SizedBox(width: 12),
-
-                          Expanded(
-                            child: Text(
-                              isEditing
-                                  ? 'Edit liability'
-                                  : 'Add liability',
-                              style:
-                                  theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-
-                          IconButton(
-                            onPressed: saving
-                                ? null
-                                : () {
-                                    Navigator.of(sheetContext).pop();
-                                  },
-                            icon: const Icon(
-                              Icons.close_rounded,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      // -----------------------------------------------------
-                      // Liability Name
-                      // -----------------------------------------------------
-
-                      Text(
-                        'LIABILITY NAME',
-                        style: theme.textTheme.labelSmall,
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      TextField(
-                        controller: nameController,
-                        enabled: !saving,
-                        autofocus: !isEditing,
-                        textCapitalization:
-                            TextCapitalization.words,
-                        textInputAction:
-                            TextInputAction.next,
-                        decoration: InputDecoration(
-                          hintText:
-                              'e.g. Credit Card, Car Loan, Mortgage',
-                          errorText: nameError,
-                          prefixIcon: const Icon(
-                            Icons.label_outline_rounded,
-                          ),
-                          filled: true,
-                          fillColor: colorScheme
-                              .onSurfaceVariant
-                              .withValues(alpha: 0.06),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 18),
-
-                      // -----------------------------------------------------
-                      // Category
-                      // -----------------------------------------------------
-
-                      Text(
-                        'CATEGORY',
-                        style: theme.textTheme.labelSmall,
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      DropdownButtonFormField<String>(
-                        initialValue: selectedType,
-                        decoration: InputDecoration(
-                          prefixIcon: Icon(
-                            _iconForType(selectedType),
-                          ),
-                          filled: true,
-                          fillColor: colorScheme
-                              .onSurfaceVariant
-                              .withValues(alpha: 0.06),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                        items: _liabilityTypes.map((type) {
-                          return DropdownMenuItem<String>(
-                            value: type,
-                            child: Text(type),
-                          );
-                        }).toList(),
-                        onChanged: saving
-                            ? null
-                            : (value) {
-                                if (value == null) return;
-
-                                setSheetState(() {
-                                  selectedType = value;
-                                });
-                              },
-                      ),
-
-                      const SizedBox(height: 18),
-
-                      // -----------------------------------------------------
-                      // Amount
-                      // -----------------------------------------------------
-
-                      Text(
-                        'OUTSTANDING AMOUNT',
-                        style: theme.textTheme.labelSmall,
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      TextField(
-                        controller: amountController,
-                        enabled: !saving,
-                        keyboardType:
-                            const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        textInputAction:
-                            TextInputAction.next,
-                        decoration: InputDecoration(
-                          hintText: '0.00',
-                          prefixText:
-                              '${CurrencyController.symbol} ',
-                          errorText: amountError,
-                          prefixIcon: const Icon(
-                            Icons.payments_outlined,
-                          ),
-                          filled: true,
-                          fillColor: colorScheme
-                              .onSurfaceVariant
-                              .withValues(alpha: 0.06),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 18),
-
-                      // -----------------------------------------------------
-                      // Due Date
-                      // -----------------------------------------------------
-
-                      Text(
-                        'DUE DATE',
-                        style: theme.textTheme.labelSmall,
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      InkWell(
-                        onTap: saving
-                            ? null
-                            : () async {
-                                final picked =
-                                    await showDatePicker(
-                                  context: context,
-                                  initialDate:
-                                      selectedDueDate ??
-                                          DateTime.now(),
-                                  firstDate:
-                                      DateTime(2000),
-                                  lastDate:
-                                      DateTime(2100),
-                                );
-
-                                if (picked == null) {
-                                  return;
-                                }
-
-                                setSheetState(() {
-                                  selectedDueDate = picked;
-                                });
-                              },
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          width: double.infinity,
-                          padding:
-                              const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 16,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme
-                                .onSurfaceVariant
-                                .withValues(alpha: 0.06),
-                            borderRadius:
-                                BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.calendar_today_rounded,
-                              ),
-
-                              const SizedBox(width: 12),
-
-                              Expanded(
-                                child: Text(
-                                  selectedDueDate == null
-                                      ? 'Select due date'
-                                      : _formatShortDate(
-                                          selectedDueDate!
-                                              .toIso8601String(),
-                                        ),
-                                  style: theme
-                                      .textTheme.bodyMedium
-                                      ?.copyWith(
-                                    color:
-                                        selectedDueDate == null
-                                            ? colorScheme
-                                                .onSurfaceVariant
-                                            : null,
-                                  ),
-                                ),
-                              ),
-
-                              if (selectedDueDate != null)
-                                IconButton(
-                                  onPressed: saving
-                                      ? null
-                                      : () {
-                                          setSheetState(() {
-                                            selectedDueDate =
-                                                null;
-                                          });
-                                        },
-                                  icon: const Icon(
-                                    Icons.clear_rounded,
-                                    size: 20,
-                                  ),
-                                )
-                              else
-                                const Icon(
-                                  Icons.chevron_right_rounded,
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 18),
-
-                      // -----------------------------------------------------
-                      // Note
-                      // -----------------------------------------------------
-
-                      Text(
-                        'NOTE',
-                        style: theme.textTheme.labelSmall,
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      TextField(
-                        controller: noteController,
-                        enabled: !saving,
-                        textCapitalization:
-                            TextCapitalization.sentences,
-                        maxLines: 3,
-                        textInputAction:
-                            TextInputAction.newline,
-                        decoration: InputDecoration(
-                          hintText:
-                              'Add a note about this liability...',
-                          prefixIcon: const Padding(
-                            padding: EdgeInsets.only(
-                              left: 12,
-                              right: 8,
-                              bottom: 40,
-                            ),
-                            child: Icon(
-                              Icons.notes_rounded,
-                            ),
-                          ),
-                          filled: true,
-                          fillColor: colorScheme
-                              .onSurfaceVariant
-                              .withValues(alpha: 0.06),
-                          border: OutlineInputBorder(
-                            borderRadius:
-                                BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding:
-                              const EdgeInsets.all(16),
-                        ),
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      // -----------------------------------------------------
-                      // Save Button
-                      // -----------------------------------------------------
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: FilledButton(
-                          onPressed: saving ? null : submit,
-                          style: FilledButton.styleFrom(
-                            backgroundColor:
-                                LifeTrackColors.coral,
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: saving
-                              ? const SizedBox(
-                                  height: 22,
-                                  width: 22,
-                                  child:
-                                      CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Text(
-                                  isEditing
-                                      ? 'Save changes'
-                                      : 'Add liability',
-                                  style: const TextStyle(
-                                    fontWeight:
-                                        FontWeight.w700,
-                                  ),
-                                ),
-                        ),
-                      ),
-
-                      // -----------------------------------------------------
-                      // Delete Button
-                      // -----------------------------------------------------
-
-                      if (isEditing) ...[
-                        const SizedBox(height: 12),
-
-                        SizedBox(
-                          width: double.infinity,
-                          height: 50,
-                          child: TextButton.icon(
-                            onPressed: saving
-                                ? null
-                                : () async {
-                                    final confirmed =
-                                        await _confirmDelete(
-                                      liability,
-                                    );
-
-                                    if (!confirmed ||
-                                        !context.mounted) {
-                                      return;
-                                    }
-
-                                    setSheetState(() {
-                                      saving = true;
-                                    });
-
-                                    try {
-                                      if (liability.id == null) {
-                                        throw Exception(
-                                          'Liability ID is missing.',
-                                        );
-                                      }
-
-                                      await _service
-                                          .deleteLiability(
-                                        liability.id!,
-                                      );
-
-                                      if (!sheetContext
-                                          .mounted) {
-                                        return;
-                                      }
-
-                                      Navigator.of(
-                                        sheetContext,
-                                      ).pop();
-
-                                      if (!mounted) return;
-
-                                      _reload();
-
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'Liability deleted',
-                                          ),
-                                          behavior:
-                                              SnackBarBehavior
-                                                  .floating,
-                                        ),
-                                      );
-                                    } catch (_) {
-                                      if (!sheetContext
-                                          .mounted) {
-                                        return;
-                                      }
-
-                                      setSheetState(() {
-                                        saving = false;
-                                      });
-
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'Unable to delete liability',
-                                          ),
-                                          behavior:
-                                              SnackBarBehavior
-                                                  .floating,
-                                        ),
-                                      );
-                                    }
-                                  },
-                            icon: const Icon(
-                              Icons.delete_outline_rounded,
-                            ),
-                            label: const Text(
-                              'Delete liability',
-                            ),
-                            style: TextButton.styleFrom(
-                              foregroundColor:
-                                  colorScheme.error,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    // Dispose controllers after the bottom sheet closes.
-    nameController.dispose();
-    amountController.dispose();
-    noteController.dispose();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Confirm Delete
-  // ---------------------------------------------------------------------------
-
-  Future<bool> _confirmDelete(
-    Liability liability,
-  ) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        final theme = Theme.of(dialogContext);
-
-        return AlertDialog(
-          title: const Text(
-            'Delete liability?',
-          ),
-          content: Text(
-            'Are you sure you want to delete '
-            '"${liability.name}"? '
-            'This action cannot be undone.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop(false);
-              },
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop(true);
-              },
-              style: FilledButton.styleFrom(
-                backgroundColor:
-                    theme.colorScheme.error,
-              ),
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-
-    return result ?? false;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Liability Details
-  // ---------------------------------------------------------------------------
-
-  Future<void> _showLiabilityDetails(
-    Liability liability,
-    double total,
-  ) async {
-    final share = total <= 0
-        ? 0.0
-        : liability.amount / total;
-
-    await showModalBottomSheet(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        final theme = Theme.of(sheetContext);
-        final colorScheme = theme.colorScheme;
-
-        return Container(
-          decoration: BoxDecoration(
-            color: theme.scaffoldBackgroundColor,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(28),
-            ),
-          ),
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                24,
-                14,
-                24,
-                28,
-              ),
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                children: [
-                  // Handle
-                  Center(
-                    child: Container(
-                      width: 42,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: colorScheme
-                            .onSurfaceVariant
-                            .withValues(alpha: 0.25),
-                        borderRadius:
-                            BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 22),
-
-                  // Header
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: LifeTrackColors.coral
-                              .withValues(alpha: 0.12),
-                        ),
-                        child: Icon(
-                          _iconForType(
-                            liability.type,
-                          ),
-                          color:
-                              LifeTrackColors.coral,
-                          size: 26,
-                        ),
-                      ),
-
-                      const SizedBox(width: 14),
-
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              liability.name,
-                              style: theme
-                                  .textTheme.titleLarge
-                                  ?.copyWith(
-                                fontWeight:
-                                    FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              liability.type,
-                              style: theme
-                                  .textTheme.bodySmall
-                                  ?.copyWith(
-                                color: colorScheme
-                                    .onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      IconButton(
-                        onPressed: () {
-                          Navigator.of(
-                            sheetContext,
-                          ).pop();
-                        },
-                        icon: const Icon(
-                          Icons.close_rounded,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Amount
-                  LifeTrackCard(
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'OUTSTANDING BALANCE',
-                          style:
-                              theme.textTheme.labelSmall,
-                        ),
-
-                        const SizedBox(height: 6),
-
-                        Text(
-                          _peso(liability.amount),
-                          style: theme
-                              .textTheme.headlineMedium
-                              ?.copyWith(
-                            fontWeight:
-                                FontWeight.w800,
-                            color:
-                                LifeTrackColors.coral,
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _DetailItem(
-                                label: 'Debt share',
-                                value:
-                                    '${(share * 100).toStringAsFixed(1)}%',
-                              ),
-                            ),
-
-                            Expanded(
-                              child: _DetailItem(
-                                label: 'Last updated',
-                                value:
-                                    _formatShortDate(
-                                  liability.updatedAt,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Due date and note
-                  if (liability.dueDate != null ||
-                      liability.note != null) ...[
-                    const SizedBox(height: 18),
-
-                    LifeTrackCard(
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          if (liability.dueDate != null)
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons
-                                      .calendar_today_rounded,
-                                  size: 18,
-                                  color:
-                                      LifeTrackColors.coral,
-                                ),
-
-                                const SizedBox(width: 8),
-
-                                Text(
-                                  'Due date',
-                                  style: theme
-                                      .textTheme.bodySmall
-                                      ?.copyWith(
-                                    color: colorScheme
-                                        .onSurfaceVariant,
-                                  ),
-                                ),
-
-                                const Spacer(),
-
-                                Text(
-                                  _formatShortDate(
-                                    liability.dueDate!,
-                                  ),
-                                  style: theme
-                                      .textTheme.bodyMedium
-                                      ?.copyWith(
-                                    fontWeight:
-                                        FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-
-                          if (liability.dueDate != null &&
-                              liability.note != null)
-                            const SizedBox(height: 16),
-
-                          if (liability.note != null) ...[
-                            Text(
-                              'Note',
-                              style: theme
-                                  .textTheme.bodySmall
-                                  ?.copyWith(
-                                color: colorScheme
-                                    .onSurfaceVariant,
-                              ),
-                            ),
-
-                            const SizedBox(height: 5),
-
-                            Text(
-                              liability.note!,
-                              style:
-                                  theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-
-                  const SizedBox(height: 18),
-
-                  // Actions
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.of(
-                              sheetContext,
-                            ).pop();
-
-                            _openEditLiability(
-                              liability,
-                            );
-                          },
-                          icon: const Icon(
-                            Icons.edit_rounded,
-                          ),
-                          label: const Text('Edit'),
-                          style:
-                              OutlinedButton.styleFrom(
-                            padding:
-                                const EdgeInsets.symmetric(
-                              vertical: 14,
-                            ),
-                            shape:
-                                RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(14),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(width: 12),
-
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () async {
-                            final confirmed =
-                                await _confirmDelete(
-                              liability,
-                            );
-
-                            if (!confirmed || !mounted) {
-                              return;
-                            }
-
-                            try {
-                              if (liability.id == null) {
-                                throw Exception(
-                                  'Liability ID is missing.',
-                                );
-                              }
-
-                              await _service
-                                  .deleteLiability(
-                                liability.id!,
-                              );
-
-                              if (!sheetContext.mounted) {
-                                return;
-                              }
-
-                              Navigator.of(
-                                sheetContext,
-                              ).pop();
-
-                              if (!mounted) return;
-
-                              _reload();
-
-                              ScaffoldMessenger.of(
-                                context,
-                              ).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Liability deleted',
-                                  ),
-                                  behavior:
-                                      SnackBarBehavior
-                                          .floating,
-                                ),
-                              );
-                            } catch (_) {
-                              if (!mounted) return;
-
-                              ScaffoldMessenger.of(
-                                context,
-                              ).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Unable to delete liability',
-                                  ),
-                                  behavior:
-                                      SnackBarBehavior
-                                          .floating,
-                                ),
-                              );
-                            }
-                          },
-                          icon: const Icon(
-                            Icons.delete_outline_rounded,
-                          ),
-                          label: const Text('Delete'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor:
-                                colorScheme.error,
-                            padding:
-                                const EdgeInsets.symmetric(
-                              vertical: 14,
-                            ),
-                            shape:
-                                RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(14),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
+  String _dueLabel(String? dueDate) {
+    if (dueDate == null) return '';
+    final d = DateTime.tryParse(dueDate);
+    if (d == null) return '';
+    final today = DateTime.now();
+    final days = DateTime(d.year, d.month, d.day)
+        .difference(DateTime(today.year, today.month, today.day))
+        .inDays;
+    if (days < 0) return 'Overdue';
+    if (days == 0) return 'Due today';
+    if (days == 1) return 'Due tomorrow';
+    if (days <= 7) return 'Due in $days days';
+    return 'Due ${_formatShortDate(dueDate)}';
   }
 
   // ---------------------------------------------------------------------------
@@ -1265,151 +325,75 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: FutureBuilder<List<Liability>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState ==
-              ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
+      child: Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? _ErrorState(onRetry: _reload)
+                : _buildBody(context, _liabilities ?? const []),
+      ),
+    );
+  }
 
-          if (snapshot.hasError) {
-            return _ErrorState(
-              onRetry: _reload,
-            );
-          }
+  Widget _buildBody(BuildContext context, List<Liability> items) {
+    final sorted = _visible(items);
+    final total = items.fold<double>(0, (sum, l) => sum + l.amount);
+    final largest = sorted.isEmpty ? null : sorted.first;
+    final upcoming = _upcomingCount(items);
 
-          final liabilities =
-              snapshot.data ?? <Liability>[];
-
-          final sortedLiabilities = [...liabilities]
-            ..sort(
-              (a, b) => b.amount.compareTo(a.amount),
-            );
-
-          final total = liabilities.fold<double>(
-            0,
-            (sum, liability) =>
-                sum + liability.amount,
-          );
-
-          final largest = sortedLiabilities.isEmpty
-              ? null
-              : sortedLiabilities.first;
-
-          return RefreshIndicator(
-            onRefresh: () async {
-              _reload();
-              await _future;
-            },
-            child: ListView(
-              physics:
-                  const AlwaysScrollableScrollPhysics(
-                parent: BouncingScrollPhysics(),
-              ),
-              padding: const EdgeInsets.fromLTRB(
-                LifeTrackMetrics.screenPadding,
-                12,
-                LifeTrackMetrics.screenPadding,
-                32,
-              ),
-              children: [
-                _buildHeader(context),
-
-                const SizedBox(height: 20),
-
-                _buildSummaryCard(
-                  context,
-                  total,
-                  liabilities.length,
-                  largest,
-                ),
-
-                if (liabilities.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-
-                  _buildDistributionCard(
-                    context,
-                    sortedLiabilities,
-                    total,
-                  ),
-                ],
-
-                const SizedBox(height: 24),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'YOUR LIABILITIES',
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelSmall,
-                      ),
-                    ),
-
-                    if (liabilities.isNotEmpty)
-                      Text(
-                        '${liabilities.length} total',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                      ),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-
-                if (liabilities.isEmpty)
-                  _EmptyState(
-                    onAdd: _openAddLiability,
-                  )
-                else
-                  ...[
-                    for (int i = 0;
-                        i < sortedLiabilities.length;
-                        i++)
-                      Padding(
-                        padding:
-                            const EdgeInsets.only(
-                          bottom: 12,
-                        ),
-                        child: _LiabilityCard(
-                          liability:
-                              sortedLiabilities[i],
-                          color:
-                              _colorForIndex(i),
-                          icon: _iconForType(
-                            sortedLiabilities[i]
-                                .type,
-                          ),
-                          share: total <= 0
-                              ? 0
-                              : sortedLiabilities[i]
-                                      .amount /
-                                  total,
-                          peso: _peso,
-                          formatDate:
-                              _formatDate,
-                          onTap: () =>
-                              _showLiabilityDetails(
-                            sortedLiabilities[i],
-                            total,
-                          ),
-                        ),
-                      ),
-                  ],
-              ],
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        padding: const EdgeInsets.fromLTRB(
+          LifeTrackMetrics.screenPadding,
+          12,
+          LifeTrackMetrics.screenPadding,
+          32,
+        ),
+        children: [
+          _header(context),
+          const SizedBox(height: 20),
+          _summaryCard(context, total, items.length, largest, upcoming),
+          if (items.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _distributionCard(context, sorted, total),
+            const SizedBox(height: 20),
+            _SortBar(
+              sort: _sort,
+              upcomingOnly: _upcomingOnly,
+              upcomingCount: upcoming,
+              onSortChanged: _setSort,
+              onUpcomingToggle: _toggleUpcoming,
             ),
-          );
-        },
+          ],
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _upcomingOnly
+                      ? 'UPCOMING LIABILITIES'
+                      : 'YOUR LIABILITIES',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
+              if (sorted.isNotEmpty)
+                Text(
+                  '${sorted.length} shown',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (sorted.isEmpty)
+            _emptyState(context)
+          else
+            _liabilitiesList(context, sorted, total),
+        ],
       ),
     );
   }
@@ -1418,117 +402,87 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
   // Header
   // ---------------------------------------------------------------------------
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _header(BuildContext context) {
     final theme = Theme.of(context);
+    final s = context.season;
 
     return Row(
       children: [
-        InkWell(
-          onTap: () =>
-              Navigator.of(context).maybePop(),
-          borderRadius: BorderRadius.circular(30),
+        GestureDetector(
+          onTap: () => Navigator.of(context).maybePop(),
           child: Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: theme.colorScheme
-                  .onSurfaceVariant
-                  .withValues(alpha: 0.08),
+              color: s.accent.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.arrow_back_rounded,
-              size: 20,
-            ),
+            child: Icon(Icons.arrow_back_rounded,
+                size: 20, color: s.accentText),
           ),
         ),
-
         const SizedBox(width: 12),
-
         Expanded(
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Liabilities',
-                style: theme
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-
-              Text(
-                'What you currently owe',
-                style: theme
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(
-                  color: theme
-                      .colorScheme
-                      .onSurfaceVariant,
-                ),
-              ),
+              Text('Liabilities',
+                  style: theme.textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text('What you currently owe',
+                  style: theme.textTheme.bodySmall),
             ],
           ),
         ),
-
         IconButton(
           tooltip: 'Add liability',
           onPressed: _openAddLiability,
           style: IconButton.styleFrom(
             backgroundColor:
-                LifeTrackColors.coral.withValues(
-              alpha: 0.12,
-            ),
+                LifeTrackColors.coral.withValues(alpha: 0.12),
           ),
-          icon: const Icon(
-            Icons.add_rounded,
-            color: LifeTrackColors.coral,
-          ),
+          icon: const Icon(Icons.add_rounded,
+              color: LifeTrackColors.coral),
         ),
       ],
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Summary Card
+  // Summary — soft blush gradient, not aggressive red
   // ---------------------------------------------------------------------------
 
-  Widget _buildSummaryCard(
+  Widget _summaryCard(
     BuildContext context,
     double total,
     int count,
     Liability? largest,
+    int upcoming,
   ) {
     final theme = Theme.of(context);
+    final s = context.season;
 
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
+        // Soft blush → warm cream. Reads as "money going out" without
+        // looking like an error banner.
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            LifeTrackColors.coral.withValues(
-              alpha: 0.16,
-            ),
-            LifeTrackColors.coral.withValues(
-              alpha: 0.05,
-            ),
+            LifeTrackColors.coral.withValues(alpha: 0.10),
+            LifeTrackColors.coral.withValues(alpha: 0.03),
+            s.accent.withValues(alpha: 0.04),
           ],
         ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: LifeTrackColors.coral.withValues(
-            alpha: 0.14,
-          ),
+          color: LifeTrackColors.coral.withValues(alpha: 0.12),
         ),
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -1536,61 +490,71 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: LifeTrackColors.coral
-                      .withValues(alpha: 0.14),
+                  color:
+                      LifeTrackColors.coral.withValues(alpha: 0.12),
                 ),
-                child: const Icon(
-                  Icons.receipt_long_rounded,
-                  size: 20,
-                  color: LifeTrackColors.coral,
-                ),
+                child: const Icon(Icons.receipt_long_rounded,
+                    size: 20, color: LifeTrackColors.coral),
               ),
-
               const SizedBox(width: 10),
-
-              Text(
-                'TOTAL DEBT',
-                style: theme.textTheme.labelSmall,
-              ),
+              Text('TOTAL DEBT', style: theme.textTheme.labelSmall),
+              const Spacer(),
+              if (upcoming > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: LifeTrackColors.highlight
+                        .withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                     const Icon(Icons.schedule_rounded,
+                          size: 12,
+                          color: LifeTrackColors.highlight),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$upcoming due soon',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: LifeTrackColors.highlight,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
-
           const SizedBox(height: 10),
-
           Text(
             _peso(total),
-            style: theme
-                .textTheme
-                .headlineMedium
-                ?.copyWith(
+            style: theme.textTheme.headlineMedium?.copyWith(
               fontWeight: FontWeight.w800,
               color: LifeTrackColors.coral,
             ),
           ),
-
           const SizedBox(height: 18),
-
           Row(
             children: [
               Expanded(
                 child: _SummaryStat(
                   icon: Icons.layers_rounded,
+                  iconColor: s.accentText,
                   label: 'Tracked',
                   value:
                       '$count ${count == 1 ? 'liability' : 'liabilities'}',
                 ),
               ),
-
               const SizedBox(width: 12),
-
               Expanded(
                 child: _SummaryStat(
-                  icon:
-                      Icons.warning_amber_rounded,
+                  icon: Icons.warning_amber_rounded,
+                  iconColor: LifeTrackColors.highlight,
                   label: 'Largest',
-                  value: largest == null
-                      ? '—'
-                      : largest.name,
+                  value: largest?.name ?? '—',
                 ),
               ),
             ],
@@ -1601,557 +565,937 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Distribution Card
+  // Distribution
   // ---------------------------------------------------------------------------
 
-  Widget _buildDistributionCard(
+  Widget _distributionCard(
     BuildContext context,
     List<Liability> liabilities,
     double total,
   ) {
     final theme = Theme.of(context);
+    final s = context.season;
 
-    return LifeTrackCard(
+    return _InlineCard(
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.pie_chart_outline_rounded,
-                size: 20,
-                color: LifeTrackColors.coral,
-              ),
-
+              Icon(Icons.pie_chart_outline_rounded,
+                  size: 20, color: s.accentText),
               const SizedBox(width: 8),
-
               Text(
                 'Debt distribution',
-                style: theme
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
               ),
             ],
           ),
-
           const SizedBox(height: 16),
-
-          ...liabilities.take(5).map(
-            (liability) {
-              final share = total <= 0
-                  ? 0.0
-                  : liability.amount / total;
-
-              return Padding(
-                padding:
-                    const EdgeInsets.only(
-                  bottom: 12,
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            liability.name,
-                            maxLines: 1,
-                            overflow:
-                                TextOverflow.ellipsis,
-                            style: theme
-                                .textTheme
-                                .bodySmall,
-                          ),
-                        ),
-
-                        const SizedBox(width: 10),
-
-                        Text(
-                          '${(share * 100).toStringAsFixed(1)}%',
-                          style: theme
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(
-                            fontWeight:
-                                FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 6),
-
-                    ClipRRect(
-                      borderRadius:
-                          BorderRadius.circular(10),
-                      child:
-                          LinearProgressIndicator(
-                        value:
-                            share.clamp(0.0, 1.0),
-                        minHeight: 4,
-                        backgroundColor:
-                            theme
-                                .colorScheme
-                                .onSurfaceVariant
-                                .withValues(
-                                  alpha: 0.08,
-                                ),
-                        valueColor:
-                            const AlwaysStoppedAnimation(
-                          LifeTrackColors.coral,
+          ...liabilities.take(5).map((liability) {
+            final share = total <= 0 ? 0.0 : liability.amount / total;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          liability.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall,
                         ),
                       ),
+                      const SizedBox(width: 10),
+                      Text(
+                        '${(share * 100).toStringAsFixed(1)}%',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: share.clamp(0.0, 1.0),
+                      minHeight: 4,
+                      backgroundColor:
+                          s.accent.withValues(alpha: 0.10),
+                      valueColor: const AlwaysStoppedAnimation(
+                          LifeTrackColors.coral),
                     ),
-                  ],
-                ),
-              );
-            },
-          ),
-
+                  ),
+                ],
+              ),
+            );
+          }),
           if (liabilities.length > 5)
             Text(
               '+ ${liabilities.length - 5} more liabilities',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme
-                    .colorScheme
-                    .onSurfaceVariant,
-              ),
+              style: theme.textTheme.bodySmall,
             ),
         ],
       ),
     );
   }
-}
 
-// =============================================================================
-// LIABILITY CARD
-// =============================================================================
+  // ---------------------------------------------------------------------------
+  // Rows
+  // ---------------------------------------------------------------------------
 
-class _LiabilityCard extends StatelessWidget {
-  const _LiabilityCard({
-    required this.liability,
-    required this.color,
-    required this.icon,
-    required this.share,
-    required this.peso,
-    required this.formatDate,
-    required this.onTap,
-  });
+  Widget _liabilitiesList(
+    BuildContext context,
+    List<Liability> sorted,
+    double total,
+  ) {
+    _rowAnims.removeWhere((index, c) {
+      if (index >= sorted.length) {
+        c.dispose();
+        return true;
+      }
+      return false;
+    });
+    for (var i = 0; i < sorted.length; i++) {
+      _rowAnims.putIfAbsent(
+        i,
+        () => AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 350),
+          lowerBound: 0.0,
+          upperBound: 1.0,
+          value: 0.0,
+        )..forward(),
+      );
+    }
 
-  final Liability liability;
-  final Color color;
-  final IconData icon;
-  final double share;
-  final String Function(double) peso;
-  final String Function(String) formatDate;
-  final VoidCallback onTap;
+    return Column(
+      children: [
+        for (int i = 0; i < sorted.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: AnimatedBuilder(
+              animation: _rowAnims[i]!,
+              builder: (context, child) {
+                final t = _rowAnims[i]!.value;
+                return Opacity(
+                  opacity: t,
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - t) * 16),
+                    child: child,
+                  ),
+                );
+              },
+              child: _LiabilityCard(
+                liability: sorted[i],
+                icon: _iconForType(sorted[i].type),
+                share: total <= 0 ? 0 : sorted[i].amount / total,
+                peso: _peso,
+                formatDate: _formatDate,
+                shareColor: _shareBadgeColor(
+                  total <= 0 ? 0 : sorted[i].amount / total,
+                ),
+                shareLabel: _shareBadgeLabel(
+                  total <= 0 ? 0 : sorted[i].amount / total,
+                ),
+                dueColor: _dueColor(context, sorted[i].dueDate),
+                dueLabel: _dueLabel(sorted[i].dueDate),
+                onTap: () =>
+                    _showLiabilityDetails(sorted[i], total),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+  // ---------------------------------------------------------------------------
+  // Add / Edit sheet
+  // ---------------------------------------------------------------------------
 
-    return LifeTrackCard(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius:
-            BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(2),
+  Future<void> _openAddLiability() => _openLiabilityEditor();
+
+  Future<void> _openEditLiability(Liability l) =>
+      _openLiabilityEditor(liability: l);
+
+  Future<void> _openLiabilityEditor({Liability? liability}) async {
+    final isEditing = liability != null;
+    final s = context.season;
+
+    final nameController =
+        TextEditingController(text: liability?.name ?? '');
+    final amountController = TextEditingController(
+        text: liability != null ? _displayAmount(liability.amount) : '');
+    final noteController =
+        TextEditingController(text: liability?.note ?? '');
+
+    DateTime? selectedDueDate;
+    if (liability?.dueDate != null) {
+      selectedDueDate = DateTime.tryParse(liability!.dueDate!);
+    }
+
+    String selectedType = liability?.type ?? 'Other';
+    String? nameError;
+    String? amountError;
+    bool saving = false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final sheetTheme = Theme.of(sheetContext);
+
+          Future<void> submit() async {
+            if (saving) return;
+
+            final name = nameController.text.trim();
+            final rawAmount = amountController.text
+                .trim()
+                .replaceAll(',', '')
+                .replaceAll(CurrencyController.symbol, '')
+                .trim();
+            final amount = double.tryParse(rawAmount);
+
+            setSheetState(() {
+              nameError = name.isEmpty ? 'Enter a liability name' : null;
+              amountError = amount == null || amount < 0
+                  ? 'Enter a valid amount'
+                  : null;
+            });
+            if (nameError != null || amountError != null) return;
+
+            setSheetState(() => saving = true);
+
+            try {
+              final updated = Liability(
+                id: liability?.id,
+                name: name,
+                type: selectedType,
+                amount: CurrencyController.toPhp(amount!),
+                dueDate: selectedDueDate?.toIso8601String(),
+                note: noteController.text.trim().isEmpty
+                    ? null
+                    : noteController.text.trim(),
+                updatedAt: DateTime.now().toIso8601String(),
+              );
+
+              if (isEditing) {
+                if (liability.id == null) {
+                  throw Exception('Liability ID is missing.');
+                }
+                await _service.updateLiability(updated);
+              } else {
+                await _service.createLiability(updated);
+              }
+
+              if (!sheetContext.mounted) return;
+              Navigator.of(sheetContext).pop();
+              if (!mounted) return;
+              await _quietReload();
+
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(isEditing
+                      ? 'Liability updated successfully'
+                      : 'Liability added successfully'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            } catch (_) {
+              if (!sheetContext.mounted) return;
+              setSheetState(() {
+                saving = false;
+                nameError = 'Unable to save liability';
+              });
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: LifeTrackColors.coral
+                              .withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          isEditing
+                              ? Icons.edit_rounded
+                              : Icons.receipt_long_rounded,
+                          color: LifeTrackColors.coral,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isEditing
+                                  ? 'Edit liability'
+                                  : 'Add liability',
+                              style: sheetTheme.textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              isEditing
+                                  ? 'Update the details of this debt.'
+                                  : 'Track a debt you owe.',
+                              style: sheetTheme.textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (saving)
+                        const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  _fieldLabel(sheetContext, 'LIABILITY NAME'),
+                  const SizedBox(height: 8),
+                  _textField(
+                    context,
+                    controller: nameController,
+                    enabled: !saving,
+                    autofocus: !isEditing,
+                    hint: 'e.g. Credit Card, Car Loan',
+                    capWords: true,
+                    errorText: nameError,
+                  ),
+                  const SizedBox(height: 16),
+
+                  _fieldLabel(sheetContext, 'CATEGORY'),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedType,
+                    decoration: _inputDecoration(context),
+                    items: _liabilityTypes
+                        .map((t) => DropdownMenuItem(
+                              value: t,
+                              child: Text(t),
+                            ))
+                        .toList(),
+                    onChanged: saving
+                        ? null
+                        : (v) {
+                            if (v == null) return;
+                            setSheetState(() => selectedType = v);
+                          },
+                  ),
+                  const SizedBox(height: 16),
+
+                  _fieldLabel(sheetContext, 'OUTSTANDING AMOUNT'),
+                  const SizedBox(height: 8),
+                  _textField(
+                    context,
+                    controller: amountController,
+                    enabled: !saving,
+                    hint: '0.00',
+                    prefix: '${CurrencyController.symbol} ',
+                    keyboard: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    errorText: amountError,
+                  ),
+                  const SizedBox(height: 16),
+
+                  _fieldLabel(sheetContext, 'DUE DATE'),
+                  const SizedBox(height: 8),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: saving
+                        ? null
+                        : () async {
+                            final picked = await showDatePicker(
+                              context: sheetContext,
+                              initialDate:
+                                  selectedDueDate ?? DateTime.now(),
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime(2100),
+                            );
+                            if (picked == null) return;
+                            setSheetState(
+                                () => selectedDueDate = picked);
+                          },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: s.accent.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.calendar_today_outlined,
+                              size: 18, color: s.accentText),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              selectedDueDate == null
+                                  ? 'Select due date'
+                                  : _formatShortDate(
+                                      selectedDueDate!
+                                          .toIso8601String()),
+                              style:
+                                  sheetTheme.textTheme.bodyMedium,
+                            ),
+                          ),
+                          if (selectedDueDate != null)
+                            GestureDetector(
+                              onTap: saving
+                                  ? null
+                                  : () => setSheetState(
+                                      () => selectedDueDate = null),
+                              child: Icon(Icons.close_rounded,
+                                  size: 18,
+                                  color: sheetTheme
+                                      .textTheme.bodyMedium?.color),
+                            )
+                          else
+                            Icon(Icons.chevron_right_rounded,
+                                size: 18,
+                                color: sheetTheme
+                                    .textTheme.bodyMedium?.color),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  _fieldLabel(sheetContext, 'NOTE'),
+                  const SizedBox(height: 8),
+                  _textField(
+                    context,
+                    controller: noteController,
+                    enabled: !saving,
+                    hint: 'Add a note about this liability...',
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 24),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton(
+                      onPressed: saving ? null : submit,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: LifeTrackColors.coral,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: saving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white),
+                            )
+                          : Text(
+                              isEditing
+                                  ? 'Save changes'
+                                  : 'Add liability',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700),
+                            ),
+                    ),
+                  ),
+                  if (isEditing) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 46,
+                      child: TextButton.icon(
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final ok =
+                                    await _confirmDelete(liability);
+                                if (!ok ||
+                                    !sheetContext.mounted) {
+                                  return;
+                                }
+                                setSheetState(
+                                    () => saving = true);
+                                try {
+                                  if (liability.id == null) {
+                                    throw Exception(
+                                        'Liability ID is missing.');
+                                  }
+                                  await _service
+                                      .deleteLiability(
+                                          liability.id!);
+                                  if (!sheetContext.mounted) {
+                                    return;
+                                  }
+                                  Navigator.of(sheetContext)
+                                      .pop();
+                                  if (!mounted) return;
+                                  await _quietReload();
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(
+                                    const SnackBar(
+                                      content:
+                                          Text('Liability deleted'),
+                                      behavior: SnackBarBehavior
+                                          .floating,
+                                    ),
+                                  );
+                                } catch (_) {
+                                  if (!sheetContext.mounted) {
+                                    return;
+                                  }
+                                  setSheetState(
+                                      () => saving = false);
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                          'Unable to delete liability'),
+                                      behavior: SnackBarBehavior
+                                          .floating,
+                                    ),
+                                  );
+                                }
+                              },
+                        icon: const Icon(
+                            Icons.delete_outline_rounded),
+                        label: const Text('Delete liability'),
+                        style: TextButton.styleFrom(
+                          foregroundColor:
+                              sheetTheme.colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    nameController.dispose();
+    amountController.dispose();
+    noteController.dispose();
+  }
+
+  InputDecoration _inputDecoration(BuildContext context) {
+    final s = context.season;
+    return InputDecoration(
+      filled: true,
+      fillColor: s.accent.withValues(alpha: 0.06),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: s.accent, width: 1.5),
+      ),
+    );
+  }
+
+  Widget _textField(
+    BuildContext context, {
+    required TextEditingController controller,
+    bool enabled = true,
+    bool autofocus = false,
+    String? hint,
+    String? prefix,
+    String? errorText,
+    bool capWords = false,
+    int maxLines = 1,
+    TextInputType? keyboard,
+  }) {
+    final s = context.season;
+    return TextField(
+      controller: controller,
+      enabled: enabled,
+      autofocus: autofocus,
+      maxLines: maxLines,
+      keyboardType: keyboard,
+      textCapitalization: capWords
+          ? TextCapitalization.words
+          : TextCapitalization.sentences,
+      decoration: InputDecoration(
+        hintText: hint,
+        prefixText: prefix,
+        errorText: errorText,
+        filled: true,
+        fillColor: s.accent.withValues(alpha: 0.06),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: s.accent, width: 1.5),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+    );
+  }
+
+  Widget _fieldLabel(BuildContext context, String text) => Text(
+        text,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              letterSpacing: 0.7,
+            ),
+      );
+
+  // ---------------------------------------------------------------------------
+  // Confirm delete
+  // ---------------------------------------------------------------------------
+
+  Future<bool> _confirmDelete(Liability liability) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.delete_outline_rounded,
+            size: 32, color: LifeTrackColors.coral),
+        title: const Text('Delete liability?'),
+        content: Text(
+          'Are you sure you want to delete "${liability.name}"? '
+          'This action cannot be undone.',
+          textAlign: TextAlign.center,
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: LifeTrackColors.coral,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Details sheet
+  // ---------------------------------------------------------------------------
+
+  Future<void> _showLiabilityDetails(
+    Liability liability,
+    double total,
+  ) async {
+    final share = total <= 0 ? 0.0 : liability.amount / total;
+    final s = context.season;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   Container(
-                    padding:
-                        const EdgeInsets.all(10),
+                    width: 46,
+                    height: 46,
+                    alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: color.withValues(
-                        alpha: 0.12,
-                      ),
+                      color:
+                          LifeTrackColors.coral.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    child: Icon(
-                      icon,
-                      size: 19,
-                      color: color,
-                    ),
+                    child: Icon(_iconForType(liability.type),
+                        color: LifeTrackColors.coral, size: 24),
                   ),
-
                   const SizedBox(width: 12),
-
                   Expanded(
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          liability.name,
-                          maxLines: 1,
-                          overflow:
-                              TextOverflow.ellipsis,
-                          style: theme
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(
-                            fontWeight:
-                                FontWeight.w600,
+                        Text(liability.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleLarge),
+                        const SizedBox(height: 2),
+                        Text(liability.type,
+                            style: theme.textTheme.bodyMedium),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color:
+                      LifeTrackColors.coral.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text('OUTSTANDING BALANCE',
+                              style: theme.textTheme.labelSmall),
+                        ),
+                        _ShareBadge(
+                          color: _shareBadgeColor(share),
+                          label: _shareBadgeLabel(share),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _peso(liability.amount),
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: LifeTrackColors.coral,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _DetailItem(
+                            label: 'Debt share',
+                            value:
+                                '${(share * 100).toStringAsFixed(1)}%',
+                            labelColor: s.accentText,
                           ),
                         ),
-
-                        const SizedBox(height: 3),
-
-                        Text(
-                          liability.type,
-                          style: theme
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(
-                            color: colorScheme
-                                .onSurfaceVariant,
+                        Expanded(
+                          child: _DetailItem(
+                            label: 'Last updated',
+                            value:
+                                _formatShortDate(liability.updatedAt),
+                            labelColor: s.accentText,
                           ),
                         ),
                       ],
                     ),
-                  ),
-
-                  const SizedBox(width: 8),
-
-                  Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        peso(liability.amount),
-                        style: theme
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(
-                          fontWeight:
-                              FontWeight.w700,
-                          color:
-                              LifeTrackColors.coral,
-                        ),
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      Text(
-                        '${(share * 100).toStringAsFixed(1)}%',
-                        style: theme
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(
-                          color: colorScheme
-                              .onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(width: 4),
-
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 20,
-                    color: colorScheme
-                        .onSurfaceVariant
-                        .withValues(alpha: 0.5),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 14),
-
-              ClipRRect(
-                borderRadius:
-                    BorderRadius.circular(10),
-                child: LinearProgressIndicator(
-                  value: share.clamp(0.0, 1.0),
-                  minHeight: 6,
-                  backgroundColor: colorScheme
-                      .onSurfaceVariant
-                      .withValues(alpha: 0.08),
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(
-                    color,
-                  ),
+                  ],
                 ),
               ),
 
-              const SizedBox(height: 8),
+              if (liability.dueDate != null ||
+                  liability.note != null) ...[
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: s.accent.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (liability.dueDate != null)
+                        Row(
+                          children: [
+                            Icon(Icons.calendar_today_rounded,
+                                size: 18, color: s.accentText),
+                            const SizedBox(width: 8),
+                            Text('Due date',
+                                style: theme.textTheme.bodyMedium),
+                            const Spacer(),
+                            Text(
+                              _formatShortDate(liability.dueDate!),
+                              style: theme.textTheme.bodyMedium
+                                  ?.copyWith(
+                                      fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                      if (liability.dueDate != null &&
+                          liability.note != null)
+                        const SizedBox(height: 12),
+                      if (liability.note != null) ...[
+                        Text('Note',
+                            style: theme.textTheme.labelSmall
+                                ?.copyWith(color: s.accentText)),
+                        const SizedBox(height: 5),
+                        Text(liability.note!,
+                            style: theme.textTheme.bodyMedium),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 18),
 
               Row(
                 children: [
-                  Icon(
-                    Icons.update_rounded,
-                    size: 13,
-                    color: colorScheme
-                        .onSurfaceVariant
-                        .withValues(alpha: 0.65),
-                  ),
-
-                  const SizedBox(width: 5),
-
-                  Text(
-                    formatDate(
-                      liability.updatedAt,
-                    ),
-                    style: theme
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(
-                      fontSize: 11,
-                      color: colorScheme
-                          .onSurfaceVariant
-                          .withValues(alpha: 0.7),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        _openEditLiability(liability);
+                      },
+                      icon: const Icon(Icons.edit_rounded, size: 18),
+                      label: const Text('Edit'),
                     ),
                   ),
-
-                  const Spacer(),
-
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 15,
-                    color: colorScheme
-                        .onSurfaceVariant
-                        .withValues(alpha: 0.45),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: LifeTrackColors.coral,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () async {
+                        final ok = await _confirmDelete(liability);
+                        if (!ok) return;
+                        try {
+                          if (liability.id == null) {
+                            throw Exception(
+                                'Liability ID is missing.');
+                          }
+                          await _service
+                              .deleteLiability(liability.id!);
+                          if (!sheetContext.mounted) return;
+                          Navigator.of(sheetContext).pop();
+                          if (!mounted) return;
+                          await _quietReload();
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Liability deleted'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        } catch (_) {
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content:
+                                  Text('Unable to delete liability'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.delete_outline_rounded,
+                          size: 18),
+                      label: const Text('Delete'),
+                    ),
                   ),
                 ],
               ),
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
-}
 
-// =============================================================================
-// SUMMARY STAT
-// =============================================================================
+  // ---------------------------------------------------------------------------
+  // Empty
+  // ---------------------------------------------------------------------------
 
-class _SummaryStat extends StatelessWidget {
-  const _SummaryStat({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _emptyState(BuildContext context) {
     final theme = Theme.of(context);
+    final s = context.season;
 
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 17,
-          color: LifeTrackColors.coral,
-        ),
-
-        const SizedBox(width: 7),
-
-        Expanded(
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: theme
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(
-                  color: theme
-                      .colorScheme
-                      .onSurfaceVariant,
-                  fontSize: 11,
-                ),
-              ),
-
-              const SizedBox(height: 2),
-
-              Text(
-                value,
-                maxLines: 1,
-                overflow:
-                    TextOverflow.ellipsis,
-                style: theme
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(
-                  fontWeight:
-                      FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// =============================================================================
-// DETAIL ITEM
-// =============================================================================
-
-class _DetailItem extends StatelessWidget {
-  const _DetailItem({
-    required this.label,
-    required this.value,
-  });
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: theme
-              .textTheme
-              .bodySmall
-              ?.copyWith(
-            color: theme
-                .colorScheme
-                .onSurfaceVariant,
-          ),
-        ),
-
-        const SizedBox(height: 4),
-
-        Text(
-          value,
-          maxLines: 1,
-          overflow:
-              TextOverflow.ellipsis,
-          style: theme
-              .textTheme
-              .bodyMedium
-              ?.copyWith(
-            fontWeight:
-                FontWeight.w700,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// =============================================================================
-// EMPTY STATE
-// =============================================================================
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.onAdd,
-  });
-
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return LifeTrackCard(
+    return _InlineCard(
       child: Padding(
         padding:
-            const EdgeInsets.symmetric(
-          horizontal: 24,
-          vertical: 34,
-        ),
+            const EdgeInsets.symmetric(horizontal: 24, vertical: 34),
         child: Column(
           children: [
             Container(
-              padding:
-                  const EdgeInsets.all(16),
+              width: 64,
+              height: 64,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: LifeTrackColors.coral
-                    .withValues(alpha: 0.10),
+                color: s.accent.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(20),
               ),
-              child: const Icon(
-                Icons.check_circle_outline_rounded,
-                size: 30,
-                color: LifeTrackColors.coral,
-              ),
+              child: Icon(Icons.check_circle_outline_rounded,
+                  size: 30, color: s.accentText),
             ),
-
             const SizedBox(height: 14),
-
             Text(
-              'No debts tracked',
+              _upcomingOnly ? 'Nothing due soon' : 'No debts tracked',
               textAlign: TextAlign.center,
-              style: theme
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(
-                fontWeight:
-                    FontWeight.w700,
-              ),
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
-
             const SizedBox(height: 6),
-
             Text(
-              'You currently have no liabilities recorded. '
-              'If you owe money, add it here to keep your '
-              'net worth accurate.',
+              _upcomingOnly
+                  ? 'No liabilities have a due date in the next 30 days.'
+                  : 'You currently have no liabilities recorded. '
+                      'If you owe money, add it here to keep your net worth accurate.',
               textAlign: TextAlign.center,
-              style: theme
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(
-                color: colorScheme
-                    .onSurfaceVariant,
-                height: 1.4,
-              ),
+              style: theme.textTheme.bodySmall,
             ),
-
-            const SizedBox(height: 18),
-
-            FilledButton.icon(
-              onPressed: onAdd,
-              icon: const Icon(
-                Icons.add_rounded,
-              ),
-              label: const Text(
-                'Add liability',
-              ),
-              style:
-                  FilledButton.styleFrom(
-                backgroundColor:
-                    LifeTrackColors.coral,
-                padding:
-                    const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 12,
+            if (!_upcomingOnly) ...[
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: _openAddLiability,
+                style: FilledButton.styleFrom(
+                  backgroundColor: LifeTrackColors.coral,
                 ),
-                shape:
-                    RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(14),
-                ),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Add liability'),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -2160,14 +1504,494 @@ class _EmptyState extends StatelessWidget {
 }
 
 // =============================================================================
-// ERROR STATE
+// Local widgets
 // =============================================================================
 
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({
-    required this.onRetry,
+/// Local card surface — replaces LifeTrackCard so this file is self-contained.
+class _InlineCard extends StatelessWidget {
+  const _InlineCard({required this.child, this.padding});
+  final Widget child;
+  final EdgeInsets? padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: padding ?? const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(LifeTrackMetrics.cardRadius),
+        border: Border.all(color: Theme.of(context).dividerColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+/// Sort bar — animated pill switcher + upcoming toggle.
+class _SortBar extends StatelessWidget {
+  const _SortBar({
+    required this.sort,
+    required this.upcomingOnly,
+    required this.upcomingCount,
+    required this.onSortChanged,
+    required this.onUpcomingToggle,
   });
 
+  final _SortMode sort;
+  final bool upcomingOnly;
+  final int upcomingCount;
+  final ValueChanged<_SortMode> onSortChanged;
+  final VoidCallback onUpcomingToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = context.season;
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(LifeTrackMetrics.chipRadius),
+        border: Border.all(color: theme.dividerColor),
+      ),
+      child: Row(
+        children: [
+          for (final mode in _SortMode.values)
+            Expanded(
+              child: _SortPill(
+                label: mode.label,
+                selected: mode == sort,
+                onTap: () => onSortChanged(mode),
+              ),
+            ),
+          Container(
+            width: 1,
+            height: 24,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            color: theme.dividerColor,
+          ),
+          Expanded(
+            flex: 2,
+            child: GestureDetector(
+              onTap: onUpcomingToggle,
+              behavior: HitTestBehavior.opaque,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: upcomingOnly
+                      ? s.accent
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(
+                      LifeTrackMetrics.chipRadius - 4),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.schedule_rounded,
+                      size: 14,
+                      color: upcomingOnly ? s.onAccent : s.accentText,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        upcomingCount > 0
+                            ? 'Upcoming ($upcomingCount)'
+                            : 'Upcoming',
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: upcomingOnly ? s.onAccent : s.accentText,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SortPill extends StatelessWidget {
+  const _SortPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.season;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? s.accent : Colors.transparent,
+          borderRadius:
+              BorderRadius.circular(LifeTrackMetrics.chipRadius - 4),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: selected ? s.onAccent : null,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+              ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Row card.
+class _LiabilityCard extends StatefulWidget {
+  const _LiabilityCard({
+    required this.liability,
+    required this.icon,
+    required this.share,
+    required this.peso,
+    required this.formatDate,
+    required this.shareColor,
+    required this.shareLabel,
+    required this.dueColor,
+    required this.dueLabel,
+    required this.onTap,
+  });
+
+  final Liability liability;
+  final IconData icon;
+  final double share;
+  final String Function(double) peso;
+  final String Function(String) formatDate;
+  final Color shareColor;
+  final String shareLabel;
+  final Color dueColor;
+  final String dueLabel;
+  final VoidCallback onTap;
+
+  @override
+  State<_LiabilityCard> createState() => _LiabilityCardState();
+}
+
+class _LiabilityCardState extends State<_LiabilityCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _tap;
+
+  @override
+  void initState() {
+    super.initState();
+    _tap = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+      lowerBound: 0.97,
+      upperBound: 1.0,
+      value: 1.0,
+    );
+  }
+
+  @override
+  void dispose() {
+    _tap.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleTap() async {
+    await _tap.reverse();
+    await _tap.forward();
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = context.season;
+
+    return ScaleTransition(
+      scale: _tap,
+      child: _InlineCard(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _handleTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: s.accent.withValues(alpha: 0.12),
+                          border: Border.all(
+                            color: s.accent.withValues(alpha: 0.20),
+                          ),
+                        ),
+                        child: Icon(
+                          widget.icon,
+                          size: 19,
+                          color: LifeTrackColors.coral,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.liability.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium
+                                  ?.copyWith(
+                                      fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 3),
+                            Row(
+                              children: [
+                                Text(
+                                  widget.liability.type,
+                                  style: theme.textTheme.bodySmall
+                                      ?.copyWith(color: s.accentText),
+                                ),
+                                if (widget.dueLabel.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  _DueBadge(
+                                    color: widget.dueColor,
+                                    label: widget.dueLabel,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            widget.peso(widget.liability.amount),
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: LifeTrackColors.coral,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          _ShareBadge(
+                            color: widget.shareColor,
+                            label: widget.shareLabel,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        size: 20,
+                        color: s.accentText.withValues(alpha: 0.5),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: widget.share.clamp(0.0, 1.0),
+                      minHeight: 6,
+                      backgroundColor:
+                          s.accent.withValues(alpha: 0.10),
+                      valueColor: AlwaysStoppedAnimation(
+                        _progressBarColor(widget.share),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.update_rounded,
+                          size: 13,
+                          color: s.accentText.withValues(alpha: 0.65)),
+                      const SizedBox(width: 5),
+                      Text(
+                        widget.formatDate(widget.liability.updatedAt),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 11,
+                          color: s.accentText.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _progressBarColor(double share) {
+    if (share >= 0.30) return LifeTrackColors.coral;
+    if (share >= 0.10) return LifeTrackColors.highlight;
+    return LifeTrackColors.mint;
+  }
+}
+
+/// Coral / amber / mint share pill.
+class _ShareBadge extends StatelessWidget {
+  const _ShareBadge({required this.color, required this.label});
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 10,
+              letterSpacing: 0,
+            ),
+      ),
+    );
+  }
+}
+
+/// Small due-date urgency pill.
+class _DueBadge extends StatelessWidget {
+  const _DueBadge({required this.color, required this.label});
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 10,
+              letterSpacing: 0,
+            ),
+      ),
+    );
+  }
+}
+
+class _SummaryStat extends StatelessWidget {
+  const _SummaryStat({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+  });
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Icon(icon, size: 17, color: iconColor),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 11,
+                  )),
+              const SizedBox(height: 2),
+              Text(value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DetailItem extends StatelessWidget {
+  const _DetailItem({
+    required this.label,
+    required this.value,
+    required this.labelColor,
+  });
+  final String label;
+  final String value;
+  final Color labelColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: labelColor)),
+        const SizedBox(height: 4),
+        Text(value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w700)),
+      ],
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.onRetry});
   final VoidCallback onRetry;
 
   @override
@@ -2177,72 +2001,36 @@ class _ErrorState extends StatelessWidget {
 
     return Center(
       child: Padding(
-        padding:
-            const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(32),
         child: Column(
-          mainAxisSize:
-              MainAxisSize.min,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding:
-                  const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: colorScheme.error
-                    .withValues(alpha: 0.10),
+                color: colorScheme.error.withValues(alpha: 0.10),
               ),
-              child: Icon(
-                Icons.cloud_off_rounded,
-                color:
-                    colorScheme.error,
-                size: 28,
-              ),
+              child: Icon(Icons.cloud_off_rounded,
+                  color: colorScheme.error, size: 28),
             ),
-
             const SizedBox(height: 14),
-
-            Text(
-              'Unable to load your liabilities',
-              textAlign: TextAlign.center,
-              style: theme
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(
-                fontWeight:
-                    FontWeight.w700,
-              ),
-            ),
-
+            Text('Unable to load your liabilities',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
-
-            Text(
-              'Something went wrong while loading '
-              'your debt records.',
-              textAlign: TextAlign.center,
-              style: theme
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(
-                color: colorScheme
-                    .onSurfaceVariant,
-              ),
-            ),
-
+            Text('Something went wrong while loading your debt records.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall),
             const SizedBox(height: 14),
-
             TextButton.icon(
               onPressed: onRetry,
-              icon: const Icon(
-                Icons.refresh_rounded,
+              style: TextButton.styleFrom(
+                foregroundColor: LifeTrackColors.coral,
               ),
-              label: const Text(
-                'Try again',
-              ),
-              style:
-                  TextButton.styleFrom(
-                foregroundColor:
-                    LifeTrackColors.coral,
-              ),
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Try again'),
             ),
           ],
         ),

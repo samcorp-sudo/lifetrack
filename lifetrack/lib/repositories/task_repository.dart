@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../core/database/database_helper.dart';
 import '../core/database/tables/tasks_table.dart';
 import '../models/task.dart';
@@ -8,6 +10,7 @@ class TaskRepository {
 
   Future<int> create(Task task) async {
     final db = await _db.database;
+    debugPrint('TASK CREATE: dueDate="${task.dueDate}" title="${task.title}"');
     return db.insert(TasksTable.tableName, task.toMap());
   }
 
@@ -19,12 +22,29 @@ class TaskRepository {
 
   Future<List<Task>> getByDate(String dueDate) async {
     final db = await _db.database;
+    debugPrint('TASK getByDate: querying dueDate="$dueDate"');
     final rows = await db.query(
       TasksTable.tableName,
       where: '${TasksTable.colDueDate} = ?',
       whereArgs: [dueDate],
     );
+    debugPrint('TASK getByDate: found ${rows.length} rows');
+    if (rows.isNotEmpty) {
+      debugPrint(
+        'TASK getByDate: first row due_date="${rows.first[TasksTable.colDueDate]}"',
+      );
+    }
     return rows.map(Task.fromMap).toList();
+  }
+
+  /// Dumps every row in the tasks table. Temporary diagnostic — remove after.
+  Future<void> debugDumpAll() async {
+    final db = await _db.database;
+    final rows = await db.query(TasksTable.tableName);
+    debugPrint('TASK DEBUG DUMP (${rows.length} rows):');
+    for (final row in rows) {
+      debugPrint('  $row');
+    }
   }
 
   Future<Task?> getById(int id) async {

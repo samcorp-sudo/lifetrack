@@ -44,7 +44,7 @@ class MoneyCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 5),
           Text(
             balanceLabel,
             style: Theme.of(context).textTheme.displayLarge?.copyWith(color: LifeTrackColors.ink),

@@ -5,6 +5,7 @@ import '../models/task.dart';
 import 'money_service.dart';
 import 'schedule_service.dart';
 import 'goal_service.dart';
+import 'package:flutter/foundation.dart';
 
 /// Business logic for Screen 1 — Main Dashboard. Composes MoneyService,
 /// ScheduleService, and GoalService rather than owning any data itself;
@@ -36,11 +37,13 @@ class DashboardService {
   /// more actionable piece of information (§2).
   Future<String?> getGreetingContext(String date) async {
     final scheduleToday = await _scheduleService.getScheduleForDate(date);
-    final isFarmingDay = scheduleToday.any((s) => s.category.toLowerCase() == 'farming');
+    final isFarmingDay =
+        scheduleToday.any((s) => s.category.toLowerCase() == 'farming');
     if (isFarmingDay) return 'You have farming scheduled today.';
 
     final freeBlocks = await _scheduleService.getFreeTimeBlocks(date);
-    final totalFreeMinutes = freeBlocks.fold<int>(0, (sum, b) => sum + b.minutes);
+    final totalFreeMinutes =
+        freeBlocks.fold<int>(0, (sum, b) => sum + b.minutes);
     if (totalFreeMinutes >= 60) {
       final hours = totalFreeMinutes / 60;
       return 'You have ${hours.toStringAsFixed(hours % 1 == 0 ? 0 : 1)} hours of free time today.';
@@ -56,7 +59,8 @@ class DashboardService {
 
   // --- Today's tasks (§4) --------------------------------------------------------
 
-  Future<List<Task>> getTodayTasks(String date) => _scheduleService.getTasksForDate(date);
+  Future<List<Task>> getTodayTasks(String date) =>
+      _scheduleService.getTasksForDate(date);
 
   Future<String> getTodayTaskProgress(String date) =>
       _scheduleService.getTodayProgressLabel(date);
@@ -78,7 +82,8 @@ class DashboardService {
 
   // --- Net worth snapshot (§6) ----------------------------------------------------
 
-  Future<NetWorthDashboardSnapshot> getNetWorthSnapshot({DateTime? asOf}) async {
+  Future<NetWorthDashboardSnapshot> getNetWorthSnapshot(
+      {DateTime? asOf}) async {
     final now = asOf ?? DateTime.now();
     final assets = await _moneyService.getTotalAssets();
     final liabilities = await _moneyService.getTotalLiabilities();
@@ -114,11 +119,19 @@ class DashboardService {
     final date = DateFormatter.toDbDate(now);
     final time = DateFormatter.nowAsDbTime();
 
+    debugPrint('DASHBOARD: date="$date" time="$time"');
+
+    final tasks = await getTodayTasks(date);
+    debugPrint('DASHBOARD: todayTasks=${tasks.length}');
+    for (final t in tasks) {
+      debugPrint('DASHBOARD:   task "${t.title}" dueDate="${t.dueDate}"');
+    }
+
     return DashboardSnapshot(
       greeting: getGreeting(asOf: now),
       greetingContext: await getGreetingContext(date),
       nextActivity: await getNextActivity(date, time),
-      todayTasks: await getTodayTasks(date),
+      todayTasks: tasks,
       todayTaskProgress: await getTodayTaskProgress(date),
       financial: await getFinancialSnapshot(asOf: now),
       netWorth: await getNetWorthSnapshot(asOf: now),

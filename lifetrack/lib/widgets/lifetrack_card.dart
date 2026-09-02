@@ -38,7 +38,7 @@ class LifeTrackCard extends StatelessWidget {
     final radius = BorderRadius.circular(LifeTrackMetrics.cardRadius);
 
     final card = Material(
-      color: backgroundColor ?? theme.cardColor,
+      color: Colors.transparent,
       borderRadius: radius,
       clipBehavior: Clip.antiAlias, // keeps child content within the rounded shape
       child: InkWell(

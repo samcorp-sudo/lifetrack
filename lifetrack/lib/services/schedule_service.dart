@@ -1,3 +1,17 @@
+// ============================================================================
+// ScheduleService
+// ----------------------------------------------------------------------------
+// Business logic for the TIME SYSTEM: the calendar (schedule) and tasks.
+//
+// Screens call this, never the repositories directly:
+//   ScheduleScreen -> ScheduleService -> *Repository -> SQLite
+//
+// NOTE: getScheduleForMonth already exists and is used by the Schedule
+// screen to compute calendar indicators in ONE query (instead of one
+// per day). No new public API was needed — updateScheduleItem already
+// persists any field change, including the new `isDone` flag.
+// ============================================================================
+
 import '../core/constants/app_constants.dart';
 import '../core/utilities/date_formatter.dart';
 import '../models/schedule.dart';

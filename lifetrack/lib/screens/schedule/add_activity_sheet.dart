@@ -19,10 +19,18 @@
 //   Category should eventually pull from a user-editable categories list
 //   (Phase 4/5); Priority maps to the `Priority` enum in mock_data.dart.
 // - Start/End time fields use showTimePicker for real time selection.
+//
+// NOTIFICATIONS:
+// - On save, a real status-bar alert is scheduled 15 minutes before the
+//   activity start via NotificationService.scheduleActivityReminder.
+//   The alert fires even when the app is closed, provided the Android
+//   manifest has POST_NOTIFICATIONS + the flutter_local_notifications
+//   boot receiver (see AndroidManifest.xml).
 // ============================================================================
 
 import 'package:flutter/material.dart';
 import '../../core/utilities/date_formatter.dart';
+import '../../core/security/notification_services.dart';
 import '../../models/schedule.dart';
 import '../../models/task.dart';
 import '../../services/schedule_service.dart';
@@ -218,6 +226,14 @@ class _AddActivitySheetState extends State<AddActivitySheet> {
     }
     setState(() => _isSaving = true);
     try {
+      final startDateTime = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        _startTime.hour,
+        _startTime.minute,
+      );
+
       await _scheduleService.addScheduleItem(Schedule(
           title: title,
           category: _category,
@@ -226,6 +242,16 @@ class _AddActivitySheetState extends State<AddActivitySheet> {
           date: DateFormatter.toDbDate(_selectedDate),
           repeatType: RepeatTypeX.fromValue(_repeat),
           priority: TaskPriorityX.fromValue(_priority)));
+
+      // Schedule a real status-bar alert 15 minutes before the activity
+      // starts. The helper silently no-ops if the start time is already in
+      // the past, so adding a same-day activity that has already begun is
+      // safe.
+      await NotificationService.scheduleActivityReminder(
+        title: title,
+        activityStart: startDateTime,
+      );
+
       if (mounted) Navigator.of(context).pop(true);
     } catch (_) {
       if (mounted) {

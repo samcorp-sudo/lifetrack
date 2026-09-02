@@ -102,7 +102,7 @@ class LifeTrackButton extends StatelessWidget {
     return SizedBox(
       width: fullWidth ? double.infinity : null,
       child: Material(
-        color: bg,
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(LifeTrackMetrics.chipRadius),
         child: InkWell(
           borderRadius: BorderRadius.circular(LifeTrackMetrics.chipRadius),

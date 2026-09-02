@@ -1,31 +1,30 @@
-// ============================================================================
-// MainShell — bottom navigation shell
+﻿// ============================================================================
+// MainShell - Modern bottom navigation shell
 // ----------------------------------------------------------------------------
-// Matches the plan's Section 12 nav map:
-//   SCHEDULE · MONEY · HOME (center) · GOALS · MORE
-//   MORE -> I'M FREE · ANALYTICS · SKILLS · SETTINGS
-// (Assets, Liabilities and Tasks are reached by drilling in from Money /
-// Goals / Home rather than living on the bottom bar, keeping the bar to 5
-// items as the plan specifies.)
+// Navigation:
+//   SCHEDULE - MONEY - HOME - GOALS - FREE - MORE
 //
-// Dashboard is the center item, rendered as a raised circular button.
-// Design pass: rounded top corners + soft elevation on the bar, an
-// animated selection pill behind the side icons, and gentle scale/color
-// transitions so switching tabs feels smooth rather than instant.
+// MORE contains:
+//   I'M FREE - ANALYTICS - SKILLS - SETTINGS
 //
-// WIRING NOTES:
-// - Purely navigation/UI state (which tab is selected). No data wiring.
-// - If deep-linking or a named-route setup is added later (e.g. opening
-//   Money from a push notification about a due bill), route through this
-//   shell's `_currentIndex` rather than pushing screens on top of it.
+// UI:
+// - Solid floating rounded navigation bar with soft shadow
+// - Icon on top, label always visible underneath
+// - Selected tab: season-colored icon pill + bold label
+// - Animated color / pill transitions
+// - Material ripple feedback
+// - Dark-mode aware (card color, shadow, accent shade)
+// - Large touch targets
 // ============================================================================
 
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 import '../screens/home/home_dashboard_screen.dart';
 import '../screens/schedule/schedule_screen.dart';
 import '../screens/money/money_screen.dart';
 import '../screens/goals/goals_screen.dart';
+import '../screens/im_free/im_free_screen.dart';
 import '../screens/more/more_screen.dart';
 
 class MainShell extends StatefulWidget {
@@ -37,156 +36,189 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   static const int _dashboardIndex = 2;
-  static const Duration _animDuration = Duration(milliseconds: 220);
+
+  static const Duration _animationDuration = Duration(milliseconds: 280);
 
   int _currentIndex = _dashboardIndex;
   int _homeRefreshKey = 0;
+  late List<Widget> _screens;
 
-  List<Widget> get _screens => [
-        const ScheduleScreen(),
-        const MoneyScreen(),
-        HomeDashboardScreen(key: ValueKey(_homeRefreshKey)),
-        const GoalsScreen(),
-        const MoreScreen(),
-      ];
+  @override
+  void initState() {
+    super.initState();
+    _buildScreens();
+  }
+
+  void _buildScreens() {
+    _screens = [
+      const ScheduleScreen(),
+      const MoneyScreen(),
+      HomeDashboardScreen(
+        key: ValueKey(_homeRefreshKey),
+      ),
+      const GoalsScreen(),
+      const ImFreeScreen(),
+      const MoreScreen(),
+    ];
+  }
 
   static const _items = [
-    (icon: Icons.calendar_today_rounded, label: 'Schedule'),
-    (icon: Icons.account_balance_wallet_rounded, label: 'Wallet'),
-    (icon: Icons.home_rounded, label: 'Dashboard'),
-    (icon: Icons.flag_rounded, label: 'Goals'),
-    (icon: Icons.menu_rounded, label: 'More'),
+    (
+      icon: Icons.calendar_month_rounded,
+      label: 'Schedule',
+    ),
+    (
+      icon: Icons.account_balance_wallet_rounded,
+      label: 'Money',
+    ),
+    (
+      icon: Icons.home_rounded,
+      label: 'Home',
+    ),
+    (
+      icon: Icons.flag_rounded,
+      label: 'Goals',
+    ),
+    (
+      icon: Icons.bolt_rounded,
+      label: 'Free',
+    ),
+    (
+      icon: Icons.more_horiz_rounded,
+      label: 'More',
+    ),
   ];
 
-  void _select(int i) {
-    if (i == _currentIndex) return;
+  void _select(int index) {
+    if (index == _currentIndex) {
+      // Refresh dashboard even when tapping Home again.
+      if (index == _dashboardIndex) {
+        setState(() {
+          _homeRefreshKey++;
+          _buildScreens();
+        });
+      }
+      return;
+    }
+
     setState(() {
-      _currentIndex = i;
-      if (i == _dashboardIndex) _homeRefreshKey++;
+      _currentIndex = index;
+      _buildScreens();
+
+      if (index == _dashboardIndex) {
+        _homeRefreshKey++;
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final mutedColor =
-        Theme.of(context).textTheme.bodyMedium?.color?.withValues(alpha: 0.6);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       extendBody: true,
-      body: IndexedStack(index: _currentIndex, children: _screens),
-      bottomNavigationBar: Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
+      ),
+      bottomNavigationBar: _BottomNavigationBar(
+        currentIndex: _currentIndex,
+        items: _items,
+        dashboardIndex: _dashboardIndex,
+        animationDuration: _animationDuration,
+        isDark: isDark,
+        onSelected: _select,
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Bottom Navigation Container
+// ============================================================================
+
+class _BottomNavigationBar extends StatelessWidget {
+  final int currentIndex;
+  final List<
+      ({
+        IconData icon,
+        String label,
+      })> items;
+
+  final int dashboardIndex;
+  final Duration animationDuration;
+  final bool isDark;
+  final ValueChanged<int> onSelected;
+
+  const _BottomNavigationBar({
+    required this.currentIndex,
+    required this.items,
+    required this.dashboardIndex,
+    required this.animationDuration,
+    required this.isDark,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        0,
+        16,
+        MediaQuery.of(context).viewPadding.bottom + 12,
+      ),
+      child: Container(
+        height: 72,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(20),
+          color: theme.cardColor, // solid white (light) / panel (dark)
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: theme.dividerColor),
           boxShadow: [
             BoxShadow(
-              color: (isDark ? Colors.black : Colors.black)
-                  .withValues(alpha: isDark ? 0.35 : 0.08),
-              blurRadius: 20,
+              color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
+              blurRadius: 24,
               offset: const Offset(0, 8),
             ),
           ],
         ),
-        child: SafeArea(
-          top: false,
-          minimum: const EdgeInsets.symmetric(vertical: 4),
-          child: SizedBox(
-            height: 52,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: List.generate(_items.length, (i) {
-                final selected = i == _currentIndex;
-                final item = _items[i];
-                final isCenter = i == _dashboardIndex;
-
-                if (isCenter) {
-                  return _CenterButton(
-                    icon: item.icon,
-                    selected: selected,
-                    duration: _animDuration,
-                    onTap: () => _select(i),
-                  );
-                }
-
-                return _SideNavItem(
-                  icon: item.icon,
-                  selected: selected,
-                  mutedColor: mutedColor,
-                  duration: _animDuration,
-                  onTap: () => _select(i),
-                );
-              }),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// One of the four regular tabs (Schedule, Wallet, Goals, More). Selection
-/// is shown with a soft rounded pill behind the icon, plus a color and
-/// gentle scale transition — not just an abrupt color swap.
-class _SideNavItem extends StatelessWidget {
-  final IconData icon;
-  final bool selected;
-  final Color? mutedColor;
-  final Duration duration;
-  final VoidCallback onTap;
-
-  const _SideNavItem({
-    required this.icon,
-    required this.selected,
-    required this.mutedColor,
-    required this.duration,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const activeColor = LifeTrackColors.highlight;
-
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: duration,
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedScale(
-              scale: selected ? 1.08 : 1.0,
-              duration: duration,
-              curve: Curves.easeOut,
-              child: Icon(
-                icon,
-                size: 22,
-                color: selected ? activeColor : mutedColor,
+        child: Row(
+          children: List.generate(items.length, (index) {
+            final item = items[index];
+            return Expanded(
+              child: _NavigationItem(
+                icon: item.icon,
+                label: item.label,
+                selected: index == currentIndex,
+                duration: animationDuration,
+                onTap: () => onSelected(index),
               ),
-            ),
-          ],
+            );
+          }),
         ),
       ),
     );
   }
 }
 
-/// The center Dashboard button — a raised circle that sits above the bar,
-/// with a soft glow shadow and a subtle press/selection scale so it feels
-/// tactile rather than static.
-class _CenterButton extends StatelessWidget {
+// ============================================================================
+// Navigation Item  (icon on top, label always visible)
+// ============================================================================
+
+class _NavigationItem extends StatelessWidget {
   final IconData icon;
+  final String label;
   final bool selected;
   final Duration duration;
   final VoidCallback onTap;
 
-  const _CenterButton({
+  const _NavigationItem({
     required this.icon,
+    required this.label,
     required this.selected,
     required this.duration,
     required this.onTap,
@@ -194,57 +226,61 @@ class _CenterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const activeColor = LifeTrackColors.highlight;
+    final theme = Theme.of(context);
+    final s = context.season;
 
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Transform.translate(
-        offset: const Offset(0, -14),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedScale(
-              scale: selected ? 1.0 : 0.94,
-              duration: duration,
-              curve: Curves.easeOut,
-              child: AnimatedContainer(
+    // accentText is deeper in light mode and brighter in dark mode,
+    // so the selected tab stays readable on both.
+    final activeColor = s.accentText;
+    final inactiveColor =
+        theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6);
+    final color = selected ? activeColor : inactiveColor;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          splashColor: activeColor.withValues(alpha: 0.10),
+          highlightColor: activeColor.withValues(alpha: 0.05),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
                 duration: duration,
-                curve: Curves.easeOut,
-                width: 50,
-                height: 50,
+                curve: Curves.easeOutCubic,
+                width: 48,
+                height: 30,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      activeColor,
-                      activeColor.withValues(alpha: 0.82),
-                    ],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color:
-                          activeColor.withValues(alpha: selected ? 0.45 : 0.3),
-                      blurRadius: selected ? 12 : 8,
-                      spreadRadius: selected ? 1 : 0,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                  border: Border.all(
-                    color: Theme.of(context).cardColor,
-                    width: 3,
-                  ),
+                  color: selected
+                      ? s.accent.withValues(alpha: 0.18)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(15),
                 ),
-                child: Icon(
-                  icon,
-                  color: Colors.white,
-                  size: 23,
+                child: Icon(icon, size: 24, color: color),
+              ),
+              const SizedBox(height: 2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: AnimatedDefaultTextStyle(
+                  duration: duration,
+                  style: (theme.textTheme.labelSmall ?? const TextStyle())
+                      .copyWith(
+                    color: color,
+                    fontSize: 11,
+                    letterSpacing: 0,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                  child: Text(label, maxLines: 1),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'theme.dart';
+import '../../theme/app_theme.dart';
 import 'routes.dart';
 import '../core/constants/app_constants.dart';
 import '../services/auth_service.dart';

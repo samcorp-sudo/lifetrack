@@ -19,6 +19,7 @@ class TaskCard extends StatelessWidget {
 
   const TaskCard({super.key, required this.task, this.onToggle});
 
+
   @override
   Widget build(BuildContext context) {
     return LifeTrackCard(
